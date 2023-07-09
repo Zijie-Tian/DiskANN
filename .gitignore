@@ -357,6 +357,7 @@ MigrationBackup/
 cscope*
 
 build/
+build_bak/
 
 # jetbrains specific stuff
 .idea/
@@ -371,3 +372,6 @@ wheelhouse/*
 dist/*
 venv*/**
 *.swp
+
+# VSCode specific stuff
+.vscode/
