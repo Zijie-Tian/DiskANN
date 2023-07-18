@@ -61,9 +61,11 @@ namespace {
           exit(-1);
         } else {
           // wait on io_getevents
+          //! 这里会阻塞。
           ret = io_getevents(ctx, (int64_t) n_ops, (int64_t) n_ops, evts.data(),
                              nullptr);
-          // if requests didn't complete
+          // if requests didn't get accepted
+          // * 
           if (ret != (int64_t) n_ops) {
             std::cerr << "io_getevents() failed; returned " << ret
                       << ", expected=" << n_ops << ", ernno=" << errno << "="

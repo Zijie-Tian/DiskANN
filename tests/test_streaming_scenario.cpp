@@ -95,6 +95,7 @@ void insert_next_batch(diskann::Index<T, TagT>& index, size_t start, size_t end,
 #pragma omp parallel for num_threads(insert_threads) schedule(dynamic) \
     reduction(+:num_failed)
     for (int64_t j = start; j < (int64_t) end; j++) {
+      //! insert point one by one
       if (index.insert_point(&data[(j - start) * aligned_dim],
                              1 + static_cast<TagT>(j)) != 0) {
         std::cerr << "Insert failed " << j << std::endl;

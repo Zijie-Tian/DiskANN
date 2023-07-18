@@ -14,6 +14,7 @@
 #include "percentile_stats.h"
 
 #ifndef _WINDOWS
+#include <fstream>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -50,7 +51,7 @@ int search_disk_index(
     const std::string& result_output_prefix, const std::string& query_file,
     std::string& gt_file, const unsigned num_threads, const unsigned recall_at,
     const unsigned beamwidth, const unsigned num_nodes_to_cache,
-    const _u32 search_io_limit, const std::vector<unsigned>& Lvec,
+    const _u32 search_io_limit, const std::vector<unsigned>& Lvec, const std::string& csv_file,
     const bool use_reorder_data = false) {
   diskann::cout << "Search parameters: #threads: " << num_threads << ", ";
   if (beamwidth <= 0)
@@ -72,6 +73,9 @@ int search_disk_index(
   diskann::load_aligned_bin<T>(query_file, query, query_num, query_dim,
                                query_aligned_dim);
 
+  std::ofstream csv_ret;
+  csv_ret.open(csv_file.c_str(), std::ios::out);
+
   bool calc_recall_flag = false;
   if (gt_file != std::string("null") && gt_file != std::string("NULL") &&
       file_exists(gt_file)) {
@@ -85,6 +89,7 @@ int search_disk_index(
   }
 
   std::shared_ptr<AlignedFileReader> reader = nullptr;
+  //! 三种文件Reader。
 #ifdef _WINDOWS
 #ifndef USE_BING_INFRA
   reader.reset(new WindowsAlignedFileReader());
@@ -105,10 +110,13 @@ int search_disk_index(
   }
   // cache bfs levels
   std::vector<uint32_t> node_list;
+  //! num_nodes_to_cache是在搜索的时候，需要缓存的节点的数量。
+  //! 这个数值也是进行BeamSearch的时候，需要访问的节点的数量。
   diskann::cout << "Caching " << num_nodes_to_cache
                 << " BFS nodes around medoid(s)" << std::endl;
   //_pFlashIndex->cache_bfs_levels(num_nodes_to_cache, node_list);
   if (num_nodes_to_cache > 0)
+    //! 15是
     _pFlashIndex->generate_cache_list_from_sample_queries(
         warmup_query_file, 15, 6, num_nodes_to_cache, num_threads, node_list);
   _pFlashIndex->load_cache_list(node_list);
@@ -164,10 +172,14 @@ int search_disk_index(
                 << std::setw(16) << "QPS" << std::setw(16) << "Mean Latency"
                 << std::setw(16) << "99.9 Latency" << std::setw(16)
                 << "Mean IOs" << std::setw(16) << "CPU (s)";
+  csv_ret << "L,Beamwidth,QPS,Mean Latency,99.9 Latency,Mean IOs,CPU (s)";
   if (calc_recall_flag) {
     diskann::cout << std::setw(16) << recall_string << std::endl;
-  } else
+    csv_ret << "," << recall_string << ";" << std::endl;
+  } else{
     diskann::cout << std::endl;
+    csv_ret << ";" << std::endl;
+  }
   diskann::cout
       << "==============================================================="
          "======================================================="
@@ -246,10 +258,19 @@ int search_disk_index(
                   << std::setw(16) << qps << std::setw(16) << mean_latency
                   << std::setw(16) << latency_999 << std::setw(16) << mean_ios
                   << std::setw(16) << mean_cpuus;
+    
+    csv_ret << L << "," << optimized_beamwidth << "," << qps << ","
+            << mean_latency << "," << latency_999 << "," << mean_ios << ","
+            << mean_cpuus;
+
     if (calc_recall_flag) {
       diskann::cout << std::setw(16) << recall << std::endl;
-    } else
+      csv_ret << "," << recall << ";" << std::endl;
+    } else {
       diskann::cout << std::endl;
+      csv_ret << ";" << std::endl;
+    }
+
     delete[] stats;
   }
 
@@ -279,7 +300,7 @@ int search_disk_index(
 
 int main(int argc, char** argv) {
   std::string data_type, dist_fn, index_path_prefix, result_path_prefix,
-      query_file, gt_file;
+      query_file, gt_file, csv_file;
   unsigned              num_threads, K, W, num_nodes_to_cache, search_io_limit;
   std::vector<unsigned> Lvec;
   bool                  use_reorder_data = false;
@@ -292,6 +313,8 @@ int main(int argc, char** argv) {
                        "data type <int8/uint8/float>");
     desc.add_options()("dist_fn", po::value<std::string>(&dist_fn)->required(),
                        "distance function <l2/mips/fast_l2>");
+    desc.add_options()("csv_file", po::value<std::string>(&csv_file)->required(),
+                       "csv file to save results");
     desc.add_options()("index_path_prefix",
                        po::value<std::string>(&index_path_prefix)->required(),
                        "Path prefix to the index");
@@ -377,16 +400,16 @@ int main(int argc, char** argv) {
       return search_disk_index<float>(metric, index_path_prefix,
                                       result_path_prefix, query_file, gt_file,
                                       num_threads, K, W, num_nodes_to_cache,
-                                      search_io_limit, Lvec, use_reorder_data);
+                                      search_io_limit, Lvec, csv_file, use_reorder_data);
     else if (data_type == std::string("int8"))
       return search_disk_index<int8_t>(metric, index_path_prefix,
                                        result_path_prefix, query_file, gt_file,
                                        num_threads, K, W, num_nodes_to_cache,
-                                       search_io_limit, Lvec, use_reorder_data);
+                                       search_io_limit, Lvec, csv_file, use_reorder_data);
     else if (data_type == std::string("uint8"))
       return search_disk_index<uint8_t>(
           metric, index_path_prefix, result_path_prefix, query_file, gt_file,
-          num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec,
+          num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec, csv_file,
           use_reorder_data);
     else {
       std::cerr << "Unsupported data type. Use float or int8 or uint8"

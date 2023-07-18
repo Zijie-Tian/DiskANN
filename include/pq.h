@@ -20,6 +20,13 @@ namespace diskann {
     bool   use_rotation = false;
     _u32*  chunk_offsets = nullptr;
     float* centroid = nullptr;
+
+    //! table的转置，hh。这个是为了加速计算，
+    //! 因为table是按照chunk来存储的，而计算的时候是按照向量的维度来计算的。
+    //! 大小和pq_tables一样，但是是按照列来存储的。
+    //! [ v1_1 v2_1 v3_1 v4_1 v5_1 v6_1 v7_1 v8_1 .. 
+    //!   v1_2 v2_2 v3_2 v4_2 v5_2 v6_2 v7_2 v8_2 ..
+    //!   v1_3 v2_3 v3_3 v4_3 v5_3 v6_3 v7_3 v8_3 .. ]
     float* tables_tr = nullptr;  // same as pq_tables, but col-major
     float* rotmat_tr = nullptr;
 
@@ -54,8 +61,10 @@ namespace diskann {
 
   template<typename T>
   struct PQScratch {
+    //! 这个是到Codebook中每一个向量的距离
     float* aligned_pqtable_dist_scratch =
         nullptr;  // MUST BE AT LEAST [256 * NCHUNKS]
+    //! 这个是每个Codebook的距离，每个Codebook有256个距离，每个距离是32bit。
     float* aligned_dist_scratch =
         nullptr;  // MUST BE AT LEAST diskann MAX_DEGREE
     _u8* aligned_pq_coord_scratch =

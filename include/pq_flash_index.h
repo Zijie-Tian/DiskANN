@@ -136,6 +136,7 @@ namespace diskann {
 
     // graph has one entry point by default,
     // we can optionally have multiple starting points
+    //! 多个起点。
     uint32_t *medoids = nullptr;
     // defaults to 1
     size_t num_medoids;
@@ -153,6 +154,7 @@ namespace diskann {
     tsl::robin_map<_u32, T *> coord_cache;
 
     // thread-specific scratch
+    //! 这个ConcurrentQueue是一个线程安全的队列，用于存储线程的数据。
     ConcurrentQueue<SSDThreadData<T> *> thread_data;
     _u64                                max_nthreads;
     bool                                load_flag = false;

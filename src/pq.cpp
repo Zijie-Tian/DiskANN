@@ -101,8 +101,14 @@ namespace diskann {
     diskann::load_bin<float>(files, pq_table_file, centroid, nr, nc,
                              file_offset_data[1]);
 #else
+    //! 什么是centroid？解释：每一个维度的中心点。
     diskann::load_bin<float>(pq_table_file, centroid, nr, nc,
                              file_offset_data[1]);
+    std::cout << "===============================" << std::endl;
+    for (_u64 i = 0; i < nr; i++) {
+      std::cout << centroid[i] << " ";
+    }
+    std::cout << "===============================" << std::endl;
 #endif
 
     if ((nr != this->ndims) || (nc != 1)) {
@@ -123,6 +129,8 @@ namespace diskann {
     diskann::load_bin<uint32_t>(files, pq_table_file, chunk_offsets, nr, nc,
                                 file_offset_data[chunk_offsets_index]);
 #else
+    //! nr -> # of rows
+    //! nc -> # of dimensions
     diskann::load_bin<uint32_t>(pq_table_file, chunk_offsets, nr, nc,
                                 file_offset_data[chunk_offsets_index]);
 #endif
@@ -137,6 +145,8 @@ namespace diskann {
     }
 
     this->n_chunks = nr - 1;
+    std::cout << "n_chunks: " << this->n_chunks << std::endl;
+
     diskann::cout << "Loaded PQ Pivots: #ctrs: " << NUM_PQ_CENTROIDS
                   << ", #dims: " << this->ndims
                   << ", #chunks: " << this->n_chunks << std::endl;
@@ -169,11 +179,13 @@ namespace diskann {
   }
 
   void FixedChunkPQTable::preprocess_query(float* query_vec) {
+    //! 中心化数据，但是这个centroids是怎么来的呢？
     for (_u32 d = 0; d < ndims; d++) {
       query_vec[d] -= centroid[d];
     }
     std::vector<float> tmp(ndims, 0);
     if (use_rotation) {
+      //! 将query_vec旋转到正交基上，反正就是和一个矩阵相乘。
       for (_u32 d = 0; d < ndims; d++) {
         for (_u32 d1 = 0; d1 < ndims; d1++) {
           tmp[d] += query_vec[d1] * rotmat_tr[d1 * ndims + d];
@@ -184,15 +196,20 @@ namespace diskann {
   }
 
   // assumes pre-processed query
+  //! 结果保存到dist_vec中。
+  //! dist_vec的大小是256 * n_chunks，每一个chunk对应256个每一维度的距离。
   void FixedChunkPQTable::populate_chunk_distances(const float* query_vec,
                                                    float*       dist_vec) {
     memset(dist_vec, 0, 256 * n_chunks * sizeof(float));
     // chunk wise distance computation
     for (_u64 chunk = 0; chunk < n_chunks; chunk++) {
       // sum (q-c)^2 for the dimensions associated with this chunk
+      //! 256 是codebook的大小。
       float* chunk_dists = dist_vec + (256 * chunk);
       for (_u64 j = chunk_offsets[chunk]; j < chunk_offsets[chunk + 1]; j++) {
+        //? table_tr是什么？
         const float* centers_dim_vec = tables_tr + (256 * j);
+        //! 256个向量的每个维度。这样chunk地计算，是为了加速计算。
         for (_u64 idx = 0; idx < 256; idx++) {
           double diff = centers_dim_vec[idx] - (query_vec[j]);
           chunk_dists[idx] += (float) (diff * diff);
@@ -262,9 +279,12 @@ namespace diskann {
     }
   }
 
+  //! 
   void aggregate_coords(const unsigned* ids, const _u64 n_ids,
                         const _u8* all_coords, const _u64 ndims, _u8* out) {
     for (_u64 i = 0; i < n_ids; i++) {
+      //! 实现了一个拼接的功能。
+      //! all_coords是所有的向量的坐标，ids是需要拼接的向量的id，ndims是向量的维度。
       memcpy(out + i * ndims, all_coords + ids[i] * ndims, ndims * sizeof(_u8));
     }
   }
@@ -278,8 +298,11 @@ namespace diskann {
     _mm_prefetch((char*) (pq_ids + 128), _MM_HINT_T0);
     memset(dists_out, 0, n_pts * sizeof(float));
     for (_u64 chunk = 0; chunk < pq_nchunks; chunk++) {
+      //! 这个是query和pq_table中每一个向量的某一个维度的距离。
       const float* chunk_dists = pq_dists + 256 * chunk;
+
       if (chunk < pq_nchunks - 1) {
+        //! 预取下一个chunk的距离。
         _mm_prefetch((char*) (chunk_dists + 256), _MM_HINT_T0);
       }
       for (_u64 idx = 0; idx < n_pts; idx++) {
@@ -339,6 +362,8 @@ namespace diskann {
         centroid[d] /= num_train;
       }
 
+      //! 将数据中心化。
+      //! 但是第一次计算的时候，这个centroid是0，所以这个操作第一次没有意义。
       for (uint64_t d = 0; d < dim; d++) {
         for (uint64_t p = 0; p < num_train; p++) {
           train_data[p * dim + d] -= centroid[d];

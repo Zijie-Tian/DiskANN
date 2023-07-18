@@ -115,6 +115,8 @@ int main(int argc, char** argv) {
                        std::string(std::to_string(append_reorder_data)) + " " +
                        std::string(std::to_string(build_PQ));
 
+  std::cout << "[-] Param: " << params << std::endl;
+
   try {
     if (data_type == std::string("int8"))
       return diskann::build_disk_index<int8_t>(data_path.c_str(),

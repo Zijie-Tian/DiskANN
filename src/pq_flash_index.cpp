@@ -89,6 +89,8 @@ namespace diskann {
     }
   }
 
+  //! 加载索引，并设置线程数据。
+  //! 这个线程数据是用来存储每个线程的上下文的，包括读取数据的上下文。
   template<typename T>
   void PQFlashIndex<T>::setup_thread_data(_u64 nthreads, _u64 visited_reserve) {
     diskann::cout << "Setting up thread-specific contexts for nthreads: "
@@ -98,6 +100,7 @@ namespace diskann {
     for (_s64 thread = 0; thread < (_s64) nthreads; thread++) {
 #pragma omp critical
       {
+        //! this -> aligned_dim 是数据的维度。
         SSDThreadData<T> *data =
             new SSDThreadData<T>(this->aligned_dim, visited_reserve);
         this->reader->register_thread();
@@ -211,6 +214,7 @@ namespace diskann {
     }
 #else
     if (file_exists(sample_bin)) {
+      //! smaple_bin是那个sample.bin文件的路径
       diskann::load_aligned_bin<T>(sample_bin, samples, sample_num, sample_dim,
                                    sample_aligned_dim);
     }
@@ -728,6 +732,8 @@ namespace diskann {
                        use_reorder_data, stats);
   }
 
+  //! 这个在index建立的时候是在OpenMP中进行调用的。
+  //! 所以这个是一个线程中执行的东西，所以这个函数中的变量都是线程私有的。
   template<typename T>
   void PQFlashIndex<T>::cached_beam_search(
       const T *query1, const _u64 k_search, const _u64 l_search, _u64 *indices,
@@ -739,11 +745,13 @@ namespace diskann {
 
     ScratchStoreManager<SSDThreadData<T>> manager(this->thread_data);
     auto                                  data = manager.scratch_space();
+    //! 这个是一个IOContext，用来管理IO的。保存了一些IO的状态。
     IOContext                            &ctx = data->ctx;
     auto                                  query_scratch = &(data->scratch);
     auto pq_query_scratch = query_scratch->_pq_scratch;
 
     // reset query scratch
+    //! 这个是一个ScratchSpace，用来保存一些临时的数据。
     query_scratch->reset();
 
     // copy query to thread specific aligned and allocated memory (for distance
@@ -756,6 +764,7 @@ namespace diskann {
     // if inner product, we laso normalize the query and set the last coordinate
     // to 0 (this is the extra coordindate used to convert MIPS to L2 search)
     if (metric == diskann::Metric::INNER_PRODUCT) {
+      //! 进行归一化
       for (size_t i = 0; i < this->data_dim - 1; i++) {
         aligned_query_T[i] = query1[i];
         query_norm += query1[i] * query1[i];
@@ -767,11 +776,14 @@ namespace diskann {
       for (size_t i = 0; i < this->data_dim - 1; i++) {
         aligned_query_T[i] /= query_norm;
       }
+      //! 这个是一个float类型的数据，用来保存归一化之后的数据。
+      //! 为什么要归一化呢？因为这个是内积，所以要归一化。
       pq_query_scratch->set(this->data_dim, aligned_query_T);
     } else {
       for (size_t i = 0; i < this->data_dim; i++) {
         aligned_query_T[i] = query1[i];
       }
+      //! 这个是一个float类型的数据，不用归一化。
       pq_query_scratch->set(this->data_dim, aligned_query_T);
     }
 
@@ -798,8 +810,11 @@ namespace diskann {
     auto compute_dists = [this, pq_coord_scratch, pq_dists](const unsigned *ids,
                                                             const _u64 n_ids,
                                                             float *dists_out) {
+      //! 从量化的向量中取出，并合成一个scratch。
       diskann::aggregate_coords(ids, n_ids, this->data, this->n_chunks,
                                 pq_coord_scratch);
+      //! 计算距离。
+      //! 用查表的方式替代了计算距离的过程。
       diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->n_chunks, pq_dists,
                               dists_out);
     };
@@ -810,6 +825,7 @@ namespace diskann {
     std::vector<Neighbor> &full_retset = query_scratch->full_retset;
     retset.reserve(l_search + 1);
 
+    //! 找出最接近的中心点。（所属的中心点）
     _u32  best_medoid = 0;
     float best_dist = (std::numeric_limits<float>::max)();
     for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
@@ -822,7 +838,11 @@ namespace diskann {
       }
     }
 
+    //! 只计算了一个中心点的距离。
+    //! 选择了一个最好的起点。
     compute_dists(&best_medoid, 1, dist_scratch);
+    //! 这是个起点。
+    //! medoid就是起点。
     retset.push_back(Neighbor(best_medoid, dist_scratch[0], true));
     visited.insert(best_medoid);
 
@@ -849,6 +869,7 @@ namespace diskann {
     while (k < cur_list_size && num_ios < io_limit) {
       auto nk = cur_list_size;
       // clear iteration state
+      //! 每次迭代都要清空。这个是最前面的那几个点。
       frontier.clear();
       frontier_nhoods.clear();
       frontier_read_reqs.clear();
@@ -859,13 +880,17 @@ namespace diskann {
       _u32 num_seen = 0;
       while (marker < cur_list_size && frontier.size() < beam_width &&
              num_seen < beam_width) {
+        //! 最初retset中仅仅只有一个起点。
+        //! 这个起点的邻居点。这个flag如果是true，那么就是没有被expand的。
         if (retset[marker].flag) {
           num_seen++;
           auto iter = nhood_cache.find(retset[marker].id);
           if (iter != nhood_cache.end()) {
             cached_nhoods.push_back(
                 std::make_pair(retset[marker].id, iter->second));
+            
             if (stats != nullptr) {
+              //? 难道不在这个nhood_cache中就不管了？
               stats->n_cache_hits++;
             }
           } else {
@@ -881,6 +906,7 @@ namespace diskann {
         marker++;
       }
 
+      //! 读取数据。
       // read nhoods of frontier ids
       if (!frontier.empty()) {
         if (stats != nullptr)
@@ -901,6 +927,8 @@ namespace diskann {
           }
           num_ios++;
         }
+
+        //! 读取数据。
         io_timer.reset();
 #ifdef USE_BING_INFRA
         reader->read(frontier_read_reqs, ctx, true);  // async reader windows.

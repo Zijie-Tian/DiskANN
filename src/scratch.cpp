@@ -36,13 +36,13 @@ namespace diskann {
 
     auto l_to_use = std::max(search_l, indexing_l);
 
-    _pool.reserve(l_to_use * 10);
-    _visited.reserve(l_to_use * 2);
-    _best_l_nodes.resize(l_to_use + 1);
-    _inserted_into_pool_rs.reserve(l_to_use * 20);
-    _inserted_into_pool_bs = new boost::dynamic_bitset<>();
+    _pool.reserve(l_to_use * 10);                           //! vector of neighbors
+    _visited.reserve(l_to_use * 2);                         //! set of visited ids
+    _best_l_nodes.resize(l_to_use + 1);                     //! L list
+    _inserted_into_pool_rs.reserve(l_to_use * 20);          //! set of inserted
+    _inserted_into_pool_bs = new boost::dynamic_bitset<>(); //! bitset of inserted
     _id_scratch.reserve(2 * r);
-    _dist_scratch = new float[std::max(2 * r, maxc)];
+    _dist_scratch = new float[std::max(2 * r, maxc)];       //? scratch space for PQ
     _occlude_factor.reserve(maxc);
 
     if (init_pq_scratch)
@@ -111,7 +111,9 @@ namespace diskann {
                                       size_t visited_reserve) {
     _u64 coord_alloc_size = ROUND_UP(MAX_N_CMPS * aligned_dim, 256);
 
+    //! coord是用来存储什么节点的？？？，解释一下，这个是用来存储待搜索节点的坐标的
     diskann::alloc_aligned((void **) &coord_scratch, coord_alloc_size, 256);
+    //! 采用aligned_alloc分配内存，内存对齐到4096字节，内存大小为MAX_N_SECTOR_READS * SECTOR_LEN
     diskann::alloc_aligned((void **) &sector_scratch,
                            (_u64) MAX_N_SECTOR_READS * (_u64) SECTOR_LEN,
                            SECTOR_LEN);

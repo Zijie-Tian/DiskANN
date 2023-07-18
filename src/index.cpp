@@ -35,6 +35,11 @@ namespace diskann {
                         const bool use_opq)
       : Index(m, dim, max_points, dynamic_index, enable_tags,
               concurrent_consolidate) {
+    
+    //! This Version have _query_scratch.
+    //! 但是这个很明显，还是会调用下面的那个函数，因为这个函数里面有一个初始化的过程。这个里面就预分配了一些搜索的空间。
+    //? 但是很奇怪，为什么这个版本没什么函数会用呢？好奇怪。
+    
     _indexingQueueSize = indexParams.Get<uint32_t>("L");
     _indexingRange = indexParams.Get<uint32_t>("R");
     _indexingMaxC = indexParams.Get<uint32_t>("C");
@@ -45,6 +50,7 @@ namespace diskann {
     uint32_t num_scratch_spaces = num_threads_srch + num_threads_indx;
     uint32_t search_l = searchParams.Get<uint32_t>("L");
 
+    //! 在进行初始化的时候，初始化query_scratch
     initialize_query_scratch(num_scratch_spaces, search_l, _indexingQueueSize,
                              _indexingRange, _indexingMaxC, dim);
   }
@@ -150,6 +156,7 @@ namespace diskann {
       this->_data = nullptr;
     }
 
+    //? Why we need a manager?, we can just delete the _query_scratch?? Why?
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     manager.destroy();
   }
@@ -707,12 +714,16 @@ namespace diskann {
       const T *query, const unsigned Lsize,
       const std::vector<unsigned> &init_ids, InMemQueryScratch<T> *scratch,
       bool ret_frozen, bool search_invocation) {
-    std::vector<Neighbor>    &expanded_nodes = scratch->pool();
-    std::vector<Neighbor>    &best_L_nodes = scratch->best_l_nodes();
+    //! Following is a NN result and Visited List in Greedy Search.
+    std::vector<Neighbor>    &expanded_nodes = scratch->pool();       //! Vector of nearest neighbors
+    std::vector<Neighbor>    &best_L_nodes = scratch->best_l_nodes(); //! Visited List, 现在就是个空的。
+
+    //? What is this ? Why is it needed ?
     tsl::robin_set<unsigned> &inserted_into_pool_rs =
         scratch->inserted_into_pool_rs();
     boost::dynamic_bitset<> &inserted_into_pool_bs =
         scratch->inserted_into_pool_bs();
+    
     auto id_scratch = scratch->id_scratch();
     auto dist_scratch = scratch->dist_scratch();
 
@@ -727,6 +738,7 @@ namespace diskann {
     float *pq_dists;
     _u8   *pq_coord_scratch;
     // Intialize PQ related scratch to use PQ based distances
+    //! 是不是ADC？
     if (_pq_dist) {
       // Get scratch spaces
       PQScratch<T> *pq_query_scratch = scratch->pq_scratch();
@@ -734,19 +746,25 @@ namespace diskann {
       query_rotated = pq_query_scratch->rotated_query;
       pq_dists = pq_query_scratch->aligned_pqtable_dist_scratch;
 
-      // Copy query vector to float and then to "rotated" query
+      //! Copy query vector to float and then to "rotated" query
       for (size_t d = 0; d < _dim; d++) {
         query_float[d] = (float) aligned_query[d];
       }
+      //! 什么是rotated query？这里简单解释下：
+      //! 其实就是对于向量的保存。没了。
+      //! 不过这里有个需要注意的点就是，这里的向量已经被归一化了。
       pq_query_scratch->set(_dim, aligned_query);
 
       // center the query and rotate if we have a rotation matrix
+      //! 中心化
       _pq_table.preprocess_query(query_rotated);
+      //! 计算距离, 结果在pq_dists中。
       _pq_table.populate_chunk_distances(query_rotated, pq_dists);
-
+      //! 
       pq_coord_scratch = pq_query_scratch->aligned_pq_coord_scratch;
     }
 
+    //! 初始化到最大值
     for (unsigned i = 0; i < Lsize + 1; i++) {
       best_L_nodes[i].distance = std::numeric_limits<float>::max();
     }
@@ -757,7 +775,7 @@ namespace diskann {
 
     // Decide whether to use bitset or robin set to mark visited nodes
     auto total_num_points = _max_points + _num_frozen_pts;
-    bool fast_iterate = total_num_points <= MAX_POINTS_FOR_USING_BITSET;
+    bool fast_iterate = total_num_points <= MAX_POINTS_FOR_USING_BITSET; //! 一千万
 
     if (fast_iterate) {
       if (inserted_into_pool_bs.size() < total_num_points) {
@@ -777,17 +795,24 @@ namespace diskann {
                                 inserted_into_pool_rs.end();
     };
 
-    // Lambda to batch compute query<-> node distances in PQ space
+    // Lambda to batch compute query <-> node distances in PQ space
+    //! 简单的额距离计算的函数，将提前计算好距离求和放到dist_out中。
+    //? 为什么要这样做呢？之前全算好距离不就好了？
     auto compute_dists = [this, pq_coord_scratch, pq_dists](const unsigned *ids,
                                                             const _u64 n_ids,
                                                             float *dists_out) {
+      //! 这个就是个拼接向量的函数，将所有的向量的pq拼接起来放到pq_coord_scratch中。
       diskann::aggregate_coords(ids, n_ids, this->_pq_data,
                                 this->_num_pq_chunks, pq_coord_scratch);
+      //! 这个函数就是计算距离的函数。
+      //! 这种算法。。。是IVFSDC吗？ 解释下，这个函数的作用就是计算pq_coord_scratch和pq_dists的距离。
+      //! 计算的方式是使用pq的中心点之间的距离，来替代原始向量之间的距离。
       diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->_num_pq_chunks,
                               pq_dists, dists_out);
     };
 
     // Initialize the candidate pool with starting points
+    //! 
     unsigned l = 0;
     for (auto id : init_ids) {
       if (id >= _max_points + _num_frozen_pts) {
@@ -812,6 +837,8 @@ namespace diskann {
         else
           distance = _distance->compare(_data + _aligned_dim * (size_t) id,
                                         aligned_query, (unsigned) _aligned_dim);
+        //! Neighbor是一个结构体，包含了id, distance, flag。
+        //! 按照distance排序。越近的越靠前。
         Neighbor nn = Neighbor(id, distance, true);
         best_L_nodes[l++] = nn;
       }
@@ -820,6 +847,8 @@ namespace diskann {
     }
 
     // sort best_L_nodes based on distance of each point to node_coords
+    //! 排序best_L_nodes。
+    //? 写一个堆会不会更好？
     std::sort(best_L_nodes.begin(), best_L_nodes.begin() + l);
     unsigned best_unchanged = 0;
     uint32_t hops = 0;
@@ -828,6 +857,12 @@ namespace diskann {
     while (best_unchanged < l) {
       unsigned best_inserted_position = l;
 
+      //! 解释一个Neighbor中的flag的作用。
+      //! flag的作用就是标记这个点是否已经被访问过了。
+      //! 如果flag为true，那么就是没有被访问过。
+      //! 如果flag为false，那么就是已经被访问过了。
+      //! 这里的结束的条件其实很好理解，就是所有点都尝试进行expand（也就是找更好的邻居），
+      //! 但是，所有的点都已经被访问过了，那么就说明，所有的点都已经被expand过了，那么就可以结束了。
       if (best_L_nodes[best_unchanged].flag == false) {  // Expanded before
         best_unchanged++;
       } else {
@@ -845,6 +880,8 @@ namespace diskann {
         {
           if (_dynamic_index)
             _locks[n].lock();
+          
+          //! 找到邻接表的邻居的距离。
           for (auto id : _final_graph[n]) {
             assert(id < _max_points + _num_frozen_pts);
             if (is_not_visited(id)) {
@@ -859,8 +896,11 @@ namespace diskann {
         // Mark nodes visited
         for (auto id : id_scratch) {
           if (fast_iterate) {
+            //! 这种方式使用的是bitset。
+            //! 这种方式的缺点就是：如果数据集很大，那么bitset的大小也会很大。
             inserted_into_pool_bs[id] = 1;
           } else {
+            //! 但是，相反来看，robinset只需要记录已经访问过的点的id，所以，如果数据集很大，那么robinset的大小会很小。
             inserted_into_pool_rs.insert(id);
           }
         }
@@ -879,7 +919,7 @@ namespace diskann {
                   (const char *) _data + _aligned_dim * (size_t) nextn,
                   sizeof(T) * _aligned_dim);
             }
-
+            //! 不使用查表的方式，正常的计算距离。
             dist_scratch[m] = _distance->compare(
                 aligned_query, _data + _aligned_dim * (size_t) id,
                 (unsigned) _aligned_dim);
@@ -889,6 +929,8 @@ namespace diskann {
 
         // Insert <id, dist> pairs into the pool of candidates
         for (size_t m = 0; m < id_scratch.size(); ++m) {
+          //! best_L_node目前已经排序了。
+          //! 所以，这里直接排除了不可能进入candidate pool的点。
           if (dist_scratch[m] >= best_L_nodes[l - 1].distance && (l == Lsize))
             continue;
 
@@ -902,6 +944,8 @@ namespace diskann {
         }
 
         // Find and update the best position perturbed in the pool
+        //! 这个best_unchnaged是什么意思？这里简单解释一下。
+        //! best_unchanged是指，从best_L_nodes中，从0开始，有多少个点的flag是true的。
         if (best_inserted_position <= best_unchanged)
           best_unchanged = best_inserted_position;
         else
@@ -1516,7 +1560,7 @@ namespace diskann {
                                                        float *distances) {
     ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
     auto                                      scratch = manager.scratch_space();
-
+    // std::cout << "Search called with L=" << L << std::endl;
     return search_impl(query, K, L, indices, distances, scratch);
   }
 
@@ -1527,6 +1571,7 @@ namespace diskann {
       float *distances, InMemQueryScratch<T> *scratch) {
     std::vector<unsigned> init_ids;
 
+    //! 读写锁：避免进行delete之类的操作的时候进行查询。
     std::shared_lock<std::shared_timed_mutex> lock(_update_lock);
 
     if (init_ids.size() == 0) {
@@ -1555,6 +1600,7 @@ namespace diskann {
         }
         pos++;
       }
+      //! 找出前K个最近邻就够了。
       if (pos == K)
         break;
     }
@@ -2116,6 +2162,7 @@ namespace diskann {
           -1, __FUNCSIG__, __FILE__, __LINE__);
     }
 
+    // _update_lock > _tag_lock
     std::shared_lock<std::shared_timed_mutex> shared_ul(_update_lock);
     std::unique_lock<std::shared_timed_mutex> tl(_tag_lock);
 
