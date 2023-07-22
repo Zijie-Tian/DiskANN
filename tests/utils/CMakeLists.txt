@@ -66,3 +66,8 @@ target_link_libraries(merge_shards ${PROJECT_NAME} ${DISKANN_TOOLS_TCMALLOC_LINK
 add_executable(create_disk_layout create_disk_layout.cpp)
 target_link_libraries(create_disk_layout ${PROJECT_NAME} ${DISKANN_ASYNC_LIB} ${DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS})
 
+
+# =============== My own tools =================
+add_executable(print_binfile print_binfile.cpp)
+target_link_libraries(print_binfile ${PROJECT_NAME} ${DISKANN_ASYNC_LIB} ${DISKANN_TOOLS_TCMALLOC_LINK_OPTIONS} Boost::program_options)
+
