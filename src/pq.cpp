@@ -279,7 +279,6 @@ namespace diskann {
     }
   }
 
-  //! 
   void aggregate_coords(const unsigned* ids, const _u64 n_ids,
                         const _u8* all_coords, const _u64 ndims, _u8* out) {
     for (_u64 i = 0; i < n_ids; i++) {
@@ -294,6 +293,7 @@ namespace diskann {
                       float* dists_out) {
     _mm_prefetch((char*) dists_out, _MM_HINT_T0);
     _mm_prefetch((char*) pq_ids, _MM_HINT_T0);
+    //! 这里为什么是简单的+64呢？
     _mm_prefetch((char*) (pq_ids + 64), _MM_HINT_T0);
     _mm_prefetch((char*) (pq_ids + 128), _MM_HINT_T0);
     memset(dists_out, 0, n_pts * sizeof(float));

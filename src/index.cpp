@@ -702,6 +702,7 @@ namespace diskann {
     //! 找到最小的距离。
     unsigned min_idx = 0;
     float    min_dist = distances[0];
+    //! _nd 是forzen point的数量，对于传入的数据，这里是输入点的数量。
     for (unsigned i = 1; i < _nd; i++) {
       if (distances[i] < min_dist) {
         min_idx = i;
@@ -760,6 +761,7 @@ namespace diskann {
       //! 什么是rotated query？这里简单解释下：
       //! 其实就是对于向量的保存。没了。
       //! 不过这里有个需要注意的点就是，这里的向量已经被归一化了。
+      //! 设置pq_query_scratch的大小。
       pq_query_scratch->set(_dim, aligned_query);
 
       // center the query and rotate if we have a rotation matrix
@@ -767,7 +769,7 @@ namespace diskann {
       _pq_table.preprocess_query(query_rotated);
       //! 计算距离, 结果在pq_dists中。
       _pq_table.populate_chunk_distances(query_rotated, pq_dists);
-      //! 
+      //! 这个是个数组，用来保存pq的坐标。(coordinate是坐标的意思。)
       pq_coord_scratch = pq_query_scratch->aligned_pq_coord_scratch;
     }
 
@@ -782,7 +784,7 @@ namespace diskann {
 
     // Decide whether to use bitset or robin set to mark visited nodes
     auto total_num_points = _max_points + _num_frozen_pts;
-    bool fast_iterate = total_num_points <= MAX_POINTS_FOR_USING_BITSET; //! 一千万
+    bool fast_iterate = total_num_points <= MAX_POINTS_FOR_USING_BITSET; //! 一千万！
 
     if (fast_iterate) {
       if (inserted_into_pool_bs.size() < total_num_points) {
@@ -797,6 +799,7 @@ namespace diskann {
     // Lambda to determine if a node has been visited
     auto is_not_visited = [this, fast_iterate, inserted_into_pool_bs,
                            inserted_into_pool_rs](const unsigned id) {
+      //! 判断是否已经被访问过了。
       return fast_iterate ? inserted_into_pool_bs[id] == 0
                           : inserted_into_pool_rs.find(id) ==
                                 inserted_into_pool_rs.end();
@@ -819,7 +822,7 @@ namespace diskann {
     };
 
     // Initialize the candidate pool with starting points
-    //! 
+    //! 最初这个init_ids仅仅只有一个元素，就是start point。
     unsigned l = 0;
     for (auto id : init_ids) {
       if (id >= _max_points + _num_frozen_pts) {
@@ -968,6 +971,8 @@ namespace diskann {
     std::vector<unsigned> init_ids;
     init_ids.emplace_back(_start);
 
+    //! iter到location这个点的最近邻。
+    //! init_ids中只有一个点，就是_start。这个就是论文中的那个GreadySearch。
     iterate_to_fixed_point(_data + _aligned_dim * location, Lindex, init_ids,
                            scratch, true, false);
 
@@ -1207,6 +1212,7 @@ namespace diskann {
 
     _saturate_graph = parameters.Get<bool>("saturate_graph");
 
+    //! 设置OpenMP的线程数量。
     if (num_threads != 0)
       omp_set_num_threads(num_threads);
 
@@ -1216,24 +1222,30 @@ namespace diskann {
     _indexingAlpha = parameters.Get<float>("alpha");
 
     /* visit_order is a vector that is initialized to the entire graph */
+    //! visit_order是一个vector，初始化为整个图。
     std::vector<unsigned>          visit_order;
     std::vector<diskann::Neighbor> pool, tmp;
     tsl::robin_set<unsigned>       visited;
     visit_order.reserve(_nd + _num_frozen_pts);
+
+    //! 提前生成好visit_order。
     for (unsigned i = 0; i < (unsigned) _nd; i++) {
       visit_order.emplace_back(i);
     }
 
+    //! 用来应对最后那一个起始点。
     if (_num_frozen_pts > 0)
       visit_order.emplace_back((unsigned) _max_points);
 
     // if there are frozen points, the first such one is set to be the _start
+    //! 如果有冻结点，那么第一个冻结点就是_start（起始点）。
     if (_num_frozen_pts > 0)
       _start = (unsigned) _max_points;
     else
       _start = calculate_entry_point();
 
     for (uint64_t p = 0; p < _nd; p++) {
+      //! 看来会申请多一些空间。
       _final_graph[p].reserve(
           (size_t) (std::ceil(_indexingRange * GRAPH_SLACK_FACTOR * 1.05)));
     }
@@ -1362,9 +1374,13 @@ namespace diskann {
       }
     }
 
+    //! R是Graph每一个节点的最大出度数量。
     uint32_t index_R = parameters.Get<uint32_t>("R");
+    //! num_threads_index是GreadySearch的线程数量。
     uint32_t num_threads_index = parameters.Get<uint32_t>("num_threads");
+    //! GreadySearch的VisitedSet的大小。也就是那个很长的尾巴~。
     uint32_t index_L = parameters.Get<uint32_t>("L");
+    //! C是GreadySearch的CandidateSet的大小。也就是那个头~。
     uint32_t maxc = parameters.Get<uint32_t>("C");
 
     if (_query_scratch.size() == 0) {
@@ -1372,7 +1388,9 @@ namespace diskann {
                                maxc, _aligned_dim);
     }
 
-    //! frozen_point也就是说
+    //! frozen_point也就是说"最后一个点"。
+    //! 为什么这个点也被称为frozen point呢？这个点是整个index的搜索起始点。
+    //! DiskANN是要根据这个点设置良好的cache的。
     generate_frozen_point();
     link(parameters);
 
@@ -1696,8 +1714,13 @@ namespace diskann {
       throw ANNException("ERROR: Can not pick a frozen point since nd=0", -1,
                          __FUNCSIG__, __FILE__, __LINE__);
     }
+
+    //! 距离集群中心最近的点的id。
     size_t res = calculate_entry_point();
 
+    //! 如果使用了PQ的话，那就把这个距离center最近的点的PQ数据复制到最后一个点的PQ数据中。
+    //! 如果没有使用PQ的话，那就把这个距离center最近的点的数据复制到最后一个点的数据中。
+    //! 将所有数据中最接近中心的点放到最后一个点中，作为冻结点。
     if (_pq_dist) {
       // copy the PQ data corresponding to the point returned by
       // calculate_entry_point
@@ -1705,7 +1728,8 @@ namespace diskann {
              _pq_data + res * _num_pq_chunks,
              _num_pq_chunks * DIV_ROUND_UP(NUM_PQ_BITS, 8));
     } else {
-      memcpy(_data + _max_points * _aligned_dim, _data + res * _aligned_dim,
+      memcpy(_data + _max_points * _aligned_dim, 
+             _data + res * _aligned_dim,
              _aligned_dim * sizeof(T));
     }
 

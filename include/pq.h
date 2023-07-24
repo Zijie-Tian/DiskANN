@@ -67,6 +67,7 @@ namespace diskann {
     //! 这个是每个Codebook的距离，每个Codebook有256个距离，每个距离是32bit。
     float* aligned_dist_scratch =
         nullptr;  // MUST BE AT LEAST diskann MAX_DEGREE
+    //! 
     _u8* aligned_pq_coord_scratch =
         nullptr;  // MUST BE AT LEAST  [N_CHUNKS * MAX_DEGREE]
     float* rotated_query = nullptr;
