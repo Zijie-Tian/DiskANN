@@ -398,6 +398,7 @@ namespace kmeans {
 
     float* dist = new float[num_points];
 
+    //! 计算到这个pivot的距离。
 #pragma omp parallel for schedule(static, 8192)
     for (int64_t i = 0; i < (_s64) num_points; i++) {
       dist[i] =
@@ -408,7 +409,9 @@ namespace kmeans {
     size_t tmp_pivot;
     bool   sum_flag = false;
 
+    //! 选取num_centers个pivot
     while (num_picked < num_centers) {
+      //! 这个是个随机数，用来选取pivot。
       dart_val = distribution(generator);
 
       double sum = 0;
@@ -420,6 +423,8 @@ namespace kmeans {
 
       dart_val *= sum;
 
+      //! 下面这个过程有点像分水岭。
+      //! 最后选出一个tmp_pivot，是个id。
       double prefix_sum = 0;
       for (size_t i = 0; i < (num_points); i++) {
         tmp_pivot = i;
@@ -437,6 +442,8 @@ namespace kmeans {
       std::memcpy(pivot_data + num_picked * dim, data + tmp_pivot * dim,
                   dim * sizeof(float));
 
+      //! 更新dist，这个dist是到所有pivot的距离。
+      //! 这个8192有什么特殊的选定的意义吗？
 #pragma omp parallel for schedule(static, 8192)
       for (int64_t i = 0; i < (_s64) num_points; i++) {
         dist[i] = (std::min)(

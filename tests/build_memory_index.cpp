@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
       return 0;
     }
     po::notify(vm);
+    //! PQ应该是在内存中的，这个参数应该是用来控制PQ的大小的。
     use_pq_build = (build_PQ_bytes > 0);
     use_opq = vm["use_opq"].as<bool>();
   } catch (const std::exception& ex) {

@@ -676,6 +676,7 @@ namespace diskann {
       for (size_t j = 0; j < _aligned_dim; j++)
         center[j] += (float) _data[i * _aligned_dim + j];
 
+    //! 每一个维度的中心值。
     for (size_t j = 0; j < _aligned_dim; j++)
       center[j] /= (float) _nd;
 
@@ -684,17 +685,21 @@ namespace diskann {
 #pragma omp parallel for schedule(static, 65536)
     for (_s64 i = 0; i < (_s64) _nd; i++) {
       // extract point and distance reference
+      //! distances[i]对应的是_data中第i个真实向量，到center的距离。
       float   &dist = distances[i];
       const T *cur_vec = _data + (i * (size_t) _aligned_dim);
       dist = 0;
       float diff = 0;
       for (size_t j = 0; j < _aligned_dim; j++) {
+        //! 算距离。
         diff =
             (center[j] - (float) cur_vec[j]) * (center[j] - (float) cur_vec[j]);
         dist += diff;
+        //! 这里对于dist的修改，对应的是distances[i]的修改。
       }
     }
     // find imin
+    //! 找到最小的距离。
     unsigned min_idx = 0;
     float    min_dist = distances[0];
     for (unsigned i = 1; i < _nd; i++) {
@@ -706,6 +711,8 @@ namespace diskann {
 
     delete[] distances;
     delete[] center;
+
+    //! 返回最小距离的点的索引。
     return min_idx;
   }
 
@@ -1329,6 +1336,7 @@ namespace diskann {
   template<typename T, typename TagT>
   void Index<T, TagT>::build_with_data_populated(
       Parameters &parameters, const std::vector<TagT> &tags) {
+    //! 进入这个函数之前，_nd已经被build函数赋值为num_points_to_load。
     diskann::cout << "Starting index build with " << _nd << " points... "
                   << std::endl;
 
@@ -1336,6 +1344,7 @@ namespace diskann {
       throw ANNException("Error: Trying to build an index with 0 points", -1,
                          __FUNCSIG__, __FILE__, __LINE__);
 
+    //! tag不用管，是Filter的东西。
     if (_enable_tags && tags.size() != _nd) {
       std::stringstream stream;
       stream << "ERROR: Driver requests loading " << _nd << " points from file,"
@@ -1363,6 +1372,7 @@ namespace diskann {
                                maxc, _aligned_dim);
     }
 
+    //! frozen_point也就是说
     generate_frozen_point();
     link(parameters);
 
@@ -1383,6 +1393,7 @@ namespace diskann {
     _has_built = true;
   }
 
+  //! 这个build函数的输入是一个vector，而不是一个文件。
   template<typename T, typename TagT>
   void Index<T, TagT>::build(const T *data, const size_t num_points_to_load,
                              Parameters              &parameters,
@@ -1410,6 +1421,7 @@ namespace diskann {
     build_with_data_populated(parameters, tags);
   }
 
+  //! 这个build函数的输入是一个文件，而不是一个vector。
   template<typename T, typename TagT>
   void Index<T, TagT>::build(const char              *filename,
                              const size_t             num_points_to_load,
@@ -1435,6 +1447,7 @@ namespace diskann {
     }
 
     diskann::get_bin_metadata(filename, file_num_points, file_dim);
+    //? 这个_max_points按照历程的传参，应该是文件的最大上限，具体有什么用呢？
     if (file_num_points > _max_points) {
       std::stringstream stream;
       stream << "ERROR: Driver requests loading " << num_points_to_load
@@ -1484,19 +1497,24 @@ namespace diskann {
 
       std::string suffix = _use_opq ? "_opq" : "_pq";
       suffix += std::to_string(_num_pq_chunks);
+      //! pivot文件中保存的是每个chunk的中心点。
+      //! compressed文件中保存的是每个chunk的压缩后的数据。
       auto pq_pivots_file = std::string(filename) + suffix + "_pivots.bin";
       auto pq_compressed_file =
           std::string(filename) + suffix + "_compressed.bin";
+      //! p_val是一个比例，表示从数据文件中读取多少数据。
       generate_quantized_data<T>(std::string(filename), pq_pivots_file,
                                  pq_compressed_file, _dist_metric, p_val,
                                  _num_pq_chunks, _use_opq);
 
+      //! 从文件中读取数据。
       copy_aligned_data_from_file<_u8>(pq_compressed_file.c_str(), _pq_data,
                                        file_num_points, _num_pq_chunks,
                                        _num_pq_chunks);
       _pq_table.load_pq_centroid_bin(pq_pivots_file.c_str(), _num_pq_chunks);
     }
 
+    //! 从数据文件中读取数据。
     copy_aligned_data_from_file<T>(filename, _data, file_num_points, file_dim,
                                    _aligned_dim);
     if (_normalize_vecs) {
@@ -1508,6 +1526,7 @@ namespace diskann {
     diskann::cout << "Using only first " << num_points_to_load
                   << " from file.. " << std::endl;
 
+    //! 在进入build_with_data_populated之前，_nd被赋值为num_points_to_load。
     _nd = num_points_to_load;
     build_with_data_populated(parameters, tags);
   }

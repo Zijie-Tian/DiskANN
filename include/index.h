@@ -105,6 +105,7 @@ namespace diskann {
     DISKANN_DLLEXPORT size_t get_max_points();
 
     // Batch build from a file. Optionally pass tags vector.
+    //! 这里声明了这个默认参数的实现。
     DISKANN_DLLEXPORT void build(
         const char *filename, const size_t num_points_to_load,
         Parameters              &parameters,

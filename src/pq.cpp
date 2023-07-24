@@ -359,11 +359,11 @@ namespace diskann {
         for (uint64_t p = 0; p < num_train; p++) {
           centroid[d] += train_data[p * dim + d];
         }
+        //! centroid是每一个维度的中心点。可能是为了方便计算每一个chunk的中心点。
         centroid[d] /= num_train;
       }
 
-      //! 将数据中心化。
-      //! 但是第一次计算的时候，这个centroid是0，所以这个操作第一次没有意义。
+      //! 将数据中心化。（中心化的目的是为了降低pq表保存的难度，使用简单较少的pq表就可以保存了。）
       for (uint64_t d = 0; d < dim; d++) {
         for (uint64_t p = 0; p < num_train; p++) {
           train_data[p * dim + d] -= centroid[d];
@@ -372,13 +372,14 @@ namespace diskann {
     }
 
     std::vector<uint32_t> chunk_offsets;
-
+    //! 确定pq的chunk的大小。
     size_t low_val = (size_t) std::floor((double) dim / (double) num_pq_chunks);
     size_t high_val = (size_t) std::ceil((double) dim / (double) num_pq_chunks);
     size_t max_num_high = dim - (low_val * num_pq_chunks);
     size_t cur_num_high = 0;
     size_t cur_bin_threshold = high_val;
 
+    //! 
     std::vector<std::vector<uint32_t>> bin_to_dims(num_pq_chunks);
     tsl::robin_map<uint32_t, uint32_t> dim_to_bin;
     std::vector<float>                 bin_loads(num_pq_chunks, 0);
@@ -387,16 +388,28 @@ namespace diskann {
     for (uint32_t d = 0; d < dim; d++) {
       if (dim_to_bin.find(d) != dim_to_bin.end())
         continue;
+
+      //! 按照下面的规则，将每一个维度分配到一个chunk中。
+      //! 这样出现的一个结果就是，每一个bin中存放的其实是不连续的维度。
       auto  cur_best = num_pq_chunks + 1;
       float cur_best_load = std::numeric_limits<float>::max();
       for (uint32_t b = 0; b < num_pq_chunks; b++) {
+        //! 第一次，选择0号bin。
+        //! 第二次，选择1号bin。
+        //! 这里的选择是为了保证每一个bin中的维度数量都是一样的。
+        //! 但是这样的话，每一个bin中的维度是不连续的。
         if (bin_loads[b] < cur_best_load &&
             bin_to_dims[b].size() < cur_bin_threshold) {
           cur_best = b;
           cur_best_load = bin_loads[b];
         }
       }
+
+      //! 这样每一个pq的chunk其实并不连续，但是每一个chunk中的维度数量是一样的。
+      //! 将维度d分配到cur_best这个chunk中。
       bin_to_dims[cur_best].push_back(d);
+      
+      //! 能够达到high_val的chunk的数量并不会很多。应该最多
       if (bin_to_dims[cur_best].size() == high_val) {
         cur_num_high++;
         if (cur_num_high == max_num_high)
@@ -404,6 +417,8 @@ namespace diskann {
       }
     }
 
+    //! 将每一个chunk中的维度按照从小到大的顺序排列。
+    //! 这个chunk_offsets是每一个chunk的维度的起始位置。
     chunk_offsets.clear();
     chunk_offsets.push_back(0);
 
@@ -414,6 +429,7 @@ namespace diskann {
     }
     chunk_offsets.push_back(dim);
 
+    //! 重置归零pivot_data。
     full_pivot_data.reset(new float[num_centers * dim]);
 
     for (size_t i = 0; i < num_pq_chunks; i++) {
@@ -434,6 +450,7 @@ namespace diskann {
 
 #pragma omp parallel for schedule(static, 65536)
       for (int64_t j = 0; j < (_s64) num_train; j++) {
+        //! 将每一个向量中的对应的那一部分放到cur_data中。
         std::memcpy(cur_data.get() + j * cur_chunk_size,
                     train_data.get() + j * dim + chunk_offsets[i],
                     cur_chunk_size * sizeof(float));
@@ -984,6 +1001,7 @@ namespace diskann {
     float* train_data;
 
     // instantiates train_data with random sample updates train_size
+    //! 使用的是filename作为输入，筛选出p_val比例的数据。
     gen_random_slice<T>(data_file_to_use.c_str(), p_val, train_data, train_size,
                         train_dim);
     diskann::cout << "Training data with " << train_size << " samples loaded."

@@ -95,6 +95,7 @@ void gen_random_slice(const std::string base_file,
  * Reimplement using gen_random_slice(const T* inputdata,...)
  ************************************/
 
+//! 从文件中读取数据，然后按照概率p_val进行采样。
 template<typename T>
 void gen_random_slice(const std::string data_file, double p_val,
                       float *&sampled_data, size_t &slice_size, size_t &ndims) {
@@ -124,6 +125,8 @@ void gen_random_slice(const std::string data_file, double p_val,
   for (size_t i = 0; i < npts; i++) {
     base_reader.read((char *) cur_vector_T.get(), ndims * sizeof(T));
     float rnd_val = distribution(generator);
+
+    //! p_val是一个阈值罢了。
     if (rnd_val < p_val) {
       std::vector<float> cur_vector_float;
       for (size_t d = 0; d < ndims; d++)
@@ -158,15 +161,22 @@ void gen_random_slice(const T *inputdata, size_t npts, size_t ndims,
   std::uniform_real_distribution<float> distribution(0, 1);
 
   for (size_t i = 0; i < npts; i++) {
+    //! current vector是从inputdata中取出来的，每次取ndims个
     cur_vector_T = inputdata + ndims * i;
     float rnd_val = distribution(generator);
     if (rnd_val < p_val) {
       std::vector<float> cur_vector_float;
+      //! 转换了一下类型
       for (size_t d = 0; d < ndims; d++)
         cur_vector_float.push_back(cur_vector_T[d]);
+      //! sampled_vectors是一个二维数组，每个元素是一个vector<float>
+      //! 最后这里保存的是采样后的向量。
       sampled_vectors.push_back(cur_vector_float);
     }
   }
+
+  //! slice_size是采样后的点的个数
+  //! 转换一下，放到sampled_data中，按照指针的方式返回。
   slice_size = sampled_vectors.size();
   sampled_data = new float[slice_size * ndims];
   for (size_t i = 0; i < slice_size; i++) {
