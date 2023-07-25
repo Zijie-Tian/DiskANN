@@ -356,7 +356,9 @@ MigrationBackup/
 /out/build/x64-Debug
 cscope*
 
-build/
+!build/
+build/*
+!build/benchmarks/
 build_bak/
 
 # jetbrains specific stuff

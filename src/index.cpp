@@ -842,6 +842,8 @@ namespace diskann {
 
         float distance;
         if (_pq_dist)
+          //! 这里利用了pq的坐标，计算距离。
+          //! 
           pq_dist_lookup(pq_coord_scratch, 1, this->_num_pq_chunks, pq_dists,
                          &distance);
         else
@@ -1255,6 +1257,7 @@ namespace diskann {
 
     diskann::Timer link_timer;
 
+    //! 使用2048个点线程进行并行，对每一个点进行搜索，然后使用Visited List进行建立连接。
 #pragma omp parallel for schedule(dynamic, 2048)
     for (_s64 node_ctr = 0; node_ctr < (_s64) (visit_order.size());
          node_ctr++) {
@@ -1280,6 +1283,8 @@ namespace diskann {
       auto node = visit_order[node_ctr];
       if (_final_graph[node].size() > _indexingRange) {
         ScratchStoreManager<InMemQueryScratch<T>> manager(_query_scratch);
+
+        //! 这个scratch是，用来存储邻居的。
         auto scratch = manager.scratch_space();
 
         tsl::robin_set<unsigned> dummy_visited(0);

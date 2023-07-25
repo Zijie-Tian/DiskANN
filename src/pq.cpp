@@ -306,7 +306,10 @@ namespace diskann {
         _mm_prefetch((char*) (chunk_dists + 256), _MM_HINT_T0);
       }
       for (_u64 idx = 0; idx < n_pts; idx++) {
+        //! pq_ids对应上一层函数iterate_to_fixed_point的pq_coord_scratch。
+        //! 那个里面应该是存放的是每一个chunk的中心点的id。
         _u8 pq_centerid = pq_ids[pq_nchunks * idx + chunk];
+        //! 计算每一个chunk的距离。
         dists_out[idx] += chunk_dists[pq_centerid];
       }
     }
