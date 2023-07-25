@@ -353,10 +353,13 @@ MigrationBackup/
 /vcproj/test_recall/x64/Debug/test_recall.Build.CppClean.log
 /vcproj/test_recall/test_recall.vcxproj.user
 /.vs
+.vscode/
 /out/build/x64-Debug
 cscope*
 
-build/
+build/*
+!build/benchmark
+build_bak/
 build_linux/
 !.github/actions/build
 
