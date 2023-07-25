@@ -978,18 +978,24 @@ namespace diskann {
     iterate_to_fixed_point(_data + _aligned_dim * location, Lindex, init_ids,
                            scratch, true, false);
 
+    //! pool是一个vector，里面存储的是最近邻。
+    //! 这个pool里面的东西在进行GreedySearch的时候已经被计算过了。
+    //! 对应的是GreadySearch的NearNeighbor集合。
     auto &pool = scratch->pool();
 
     for (unsigned i = 0; i < pool.size(); i++) {
+      //! 去掉location自己。
       if (pool[i].id == (unsigned) location) {
         pool.erase(pool.begin() + i);
         i--;
       } else if (_delete_set.find(pool[i].id) != _delete_set.end()) {
+        //! 如果是动态的图，那么将delete_set中的点去掉。
         pool.erase(pool.begin() + i);
         i--;
       }
     }
 
+    //! PruneNeighbor函数。
     std::vector<unsigned> pruned_list;
     prune_neighbors(location, pool, pruned_list, scratch);
 
@@ -1003,6 +1009,7 @@ namespace diskann {
         tlock.lock();
 
       LockGuard guard(_locks[location]);
+      //! final_graph是一个vector的vector，用于表示邻接表。
       _final_graph[location].clear();
       _final_graph[location].shrink_to_fit();
       _final_graph[location].reserve(

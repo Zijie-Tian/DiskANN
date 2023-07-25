@@ -111,6 +111,7 @@ namespace diskann {
     load_flag = true;
   }
 
+  //! 这个函数并不讨论cache哪些会比较合适，只是将前num_nodes_to_cache个节点的数据读取到内存中。
   template<typename T>
   void PQFlashIndex<T>::load_cache_list(std::vector<uint32_t> &node_list) {
     diskann::cout << "Loading the cache list into memory.." << std::flush;
@@ -129,14 +130,18 @@ namespace diskann {
                            coord_cache_buf_len * sizeof(T), 8 * sizeof(T));
     memset(coord_cache_buf, 0, coord_cache_buf_len * sizeof(T));
 
+    //! 计算出需要多少个块来读取数据。
     size_t BLOCK_SIZE = 8;
     size_t num_blocks = DIV_ROUND_UP(num_cached_nodes, BLOCK_SIZE);
 
+    //! 这里将对应的节点和这些节点的邻居进行读取，并放到cache中。
     for (_u64 block = 0; block < num_blocks; block++) {
       _u64 start_idx = block * BLOCK_SIZE;
+      //! 这里仅仅只是简单地进行了cache数量的计算。
       _u64 end_idx = (std::min)(num_cached_nodes, (block + 1) * BLOCK_SIZE);
       std::vector<AlignedRead>             read_reqs;
       std::vector<std::pair<_u32, char *>> nhoods;
+      //! 这里的nhoods是一个pair，第一个是node_id，第二个是node_buf。
       for (_u64 node_idx = start_idx; node_idx < end_idx; node_idx++) {
         AlignedRead read;
         char       *buf = nullptr;
@@ -148,7 +153,10 @@ namespace diskann {
         read_reqs.push_back(read);
       }
 
+      //! reader下发读取请求。
+      //= ==============================================================
       reader->read(read_reqs, ctx);
+      //= ==============================================================
 
       _u64 node_idx = start_idx;
       for (_u32 i = 0; i < read_reqs.size(); i++) {
@@ -159,9 +167,13 @@ namespace diskann {
           continue;
         }
 #endif
+        //> 将读取到的数据放到cache中。
+        //> 这个nhoods是一个pair，第一个是node_id，第二个是node_buf。
+        //! 这个node_buf，同时又指向了read_reqs[i].buf，那么就是读回来的数据。
         auto &nhood = nhoods[i];
         char *node_buf = OFFSET_TO_NODE(nhood.second, nhood.first);
         T    *node_coords = OFFSET_TO_NODE_COORDS(node_buf);
+        //! 对应cache的坐标。
         T    *cached_coords = coord_cache_buf + node_idx * aligned_dim;
         memcpy(cached_coords, node_coords, disk_bytes_per_point);
         coord_cache.insert(std::make_pair(nhood.first, cached_coords));
@@ -175,6 +187,8 @@ namespace diskann {
         cnhood.first = nnbrs;
         cnhood.second = nhood_cache_buf + node_idx * (max_degree + 1);
         memcpy(cnhood.second, nbrs, nnbrs * sizeof(unsigned));
+
+        //! 这个nhood_cache在这个时候被初始化，并在其中cache了相应的数据。
         nhood_cache.insert(std::make_pair(nhood.first, cnhood));
         aligned_free(nhood.second);
         node_idx++;
@@ -196,6 +210,7 @@ namespace diskann {
       _u64 num_nodes_to_cache, uint32_t nthreads,
       std::vector<uint32_t> &node_list) {
 #endif
+//! 这里的sample_bin对应外面的warmup_file。
     this->count_visited_nodes = true;
     this->node_visit_counter.clear();
     this->node_visit_counter.resize(this->num_points);
@@ -207,6 +222,7 @@ namespace diskann {
     _u64 sample_num, sample_dim, sample_aligned_dim;
     T   *samples;
 
+//! 这个EXEC_ENV_OLS是指，是否会使用那种MemoryMappedFiles的读取方式。
 #ifdef EXEC_ENV_OLS
     if (files.fileExists(sample_bin)) {
       diskann::load_aligned_bin<T>(files, sample_bin, samples, sample_num,
@@ -214,7 +230,7 @@ namespace diskann {
     }
 #else
     if (file_exists(sample_bin)) {
-      //! smaple_bin是那个sample.bin文件的路径
+      //! smaple_bin是warmup_file。
       diskann::load_aligned_bin<T>(sample_bin, samples, sample_num, sample_dim,
                                    sample_aligned_dim);
     }
@@ -406,7 +422,11 @@ namespace diskann {
       medoid_read[0].len = SECTOR_LEN;
       medoid_read[0].buf = medoid_buf;
       medoid_read[0].offset = NODE_SECTOR_NO(medoid) * SECTOR_LEN;
+
+      //= ==============================================================
+      //= 读取medoid的数据。
       reader->read(medoid_read, ctx);
+      //= ==============================================================
 
       // all data about medoid
       char *medoid_node_buf = OFFSET_TO_NODE(medoid_buf, medoid);
@@ -815,6 +835,8 @@ namespace diskann {
                                 pq_coord_scratch);
       //! 计算距离。
       //! 用查表的方式替代了计算距离的过程。
+      //! 计算了到每一个中心点的距离。
+      //> dist_out的索引就是每一个中心点的id。
       diskann::pq_dist_lookup(pq_coord_scratch, n_ids, this->n_chunks, pq_dists,
                               dists_out);
     };
@@ -826,6 +848,9 @@ namespace diskann {
     retset.reserve(l_search + 1);
 
     //! 找出最接近的中心点。（所属的中心点）
+    //> 但是要注意，一般来讲，并没有很多的中心点，只有一个。
+    //! IVF的那个过程。
+    //! 这个medoids是一个起点集合，这个起点集合是在index建立的时候就已经确定了的。
     _u32  best_medoid = 0;
     float best_dist = (std::numeric_limits<float>::max)();
     for (_u64 cur_m = 0; cur_m < num_medoids; cur_m++) {
@@ -840,6 +865,7 @@ namespace diskann {
 
     //! 只计算了一个中心点的距离。
     //! 选择了一个最好的起点。
+    //! compute_dists是一个lambda函数，就在上面，将包括query的各种其他的数据结构都传进去了。
     compute_dists(&best_medoid, 1, dist_scratch);
     //! 这是个起点。
     //! medoid就是起点。
@@ -883,9 +909,12 @@ namespace diskann {
         //! 最初retset中仅仅只有一个起点。
         //! 这个起点的邻居点。这个flag如果是true，那么就是没有被expand的。
         if (retset[marker].flag) {
+          //! Expand marker这个点。
           num_seen++;
           auto iter = nhood_cache.find(retset[marker].id);
           if (iter != nhood_cache.end()) {
+            //! 这里主要检测的是nhood_cache的cache的能力，真正的cache是nhood_cache。
+            //! nhood_cache是一个map，key是id，value是一个pair，pair的第一个是nhood的大小，第二个是nhood的内容。
             cached_nhoods.push_back(
                 std::make_pair(retset[marker].id, iter->second));
             

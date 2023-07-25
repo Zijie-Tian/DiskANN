@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdio>
 #include <iostream>
+#include <fstream>
 #include "tsl/robin_map.h"
 #include "utils.h"
 #define MAX_EVENTS 1024
@@ -25,17 +26,25 @@ namespace {
       // assert(malloc_usable_size(req.buf) >= req.len);
     }
 #endif
-
     // break-up requests into chunks of size MAX_EVENTS each
     uint64_t n_iters = ROUND_UP(read_reqs.size(), MAX_EVENTS) / MAX_EVENTS;
     for (uint64_t iter = 0; iter < n_iters; iter++) {
       uint64_t n_ops =
           std::min((uint64_t) read_reqs.size() - (iter * MAX_EVENTS),
                    (uint64_t) MAX_EVENTS);
+      //! 申请了一块内存，用于存放io请求的指针。
       std::vector<iocb_t *>    cbs(n_ops, nullptr);
       std::vector<io_event_t>  evts(n_ops);
       std::vector<struct iocb> cb(n_ops);
       for (uint64_t j = 0; j < n_ops; j++) {
+        //!
+        /* 参数说明：
+          iocb：指向一个iocb结构体的指针，用于存储I/O请求的信息。
+          fd：文件描述符，表示要读取数据的文件。
+          buf：用于存储读取数据的缓冲区指针。
+          count：要读取的字节数。
+          offset：从文件中的哪个偏移量开始读取数据。
+        */
         io_prep_pread(cb.data() + j, fd, read_reqs[j + iter * MAX_EVENTS].buf,
                       read_reqs[j + iter * MAX_EVENTS].len,
                       read_reqs[j + iter * MAX_EVENTS].offset);
@@ -51,9 +60,12 @@ namespace {
       uint64_t n_tries = 0;
       while (n_tries <= n_retries) {
         // issue reads
+        //! 这里是cbs，一次性打下去很多的请求。
         int64_t ret = io_submit(ctx, (int64_t) n_ops, cbs.data());
         // if requests didn't get accepted
         if (ret != (int64_t) n_ops) {
+          //! 也就是说，这里的io_submit()函数，是一次性将所有的请求都提交了。
+          //! 只要有一个请求没成功，就会返回错误。
           std::cerr << "io_submit() failed; returned " << ret
                     << ", expected=" << n_ops << ", ernno=" << errno << "="
                     << ::strerror(-ret) << ", try #" << n_tries + 1;
@@ -197,6 +209,7 @@ void LinuxAlignedFileReader::read(std::vector<AlignedRead> &read_reqs,
   if (async == true) {
     diskann::cout << "Async currently not supported in linux." << std::endl;
   }
+  //! this -> file_desc 是在open的时候赋值的。
   assert(this->file_desc != -1);
   execute_io(ctx, this->file_desc, read_reqs);
 }
