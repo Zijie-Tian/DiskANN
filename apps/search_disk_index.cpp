@@ -264,7 +264,6 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
         auto latency_999 = diskann::get_percentile_stats<float>(
             stats, query_num, 0.999, [](const diskann::QueryStats &stats) { return stats.total_us; });
 
-        //! mean_ios
         auto mean_ios = diskann::get_mean_stats<uint32_t>(stats, query_num,
                                                           [](const diskann::QueryStats &stats) { return stats.n_ios; });
 

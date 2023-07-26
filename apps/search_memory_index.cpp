@@ -3,7 +3,6 @@
 
 #include <cstring>
 #include <iomanip>
-#include <fstream>
 #include <algorithm>
 #include <numeric>
 #include <omp.h>
@@ -31,8 +30,7 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
                         const std::string &query_file, const std::string &truthset_file, const uint32_t num_threads,
                         const uint32_t recall_at, const bool print_all_recalls, const std::vector<uint32_t> &Lvec,
                         const bool dynamic, const bool tags, const bool show_qps_per_thread,
-                        const std::vector<std::string> &query_filters, const float fail_if_recall_below, 
-                        const std::string &csv_file)
+                        const std::vector<std::string> &query_filters, const float fail_if_recall_below)
 {
     using TagT = uint32_t;
     // Load the query file
@@ -41,10 +39,6 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
     float *gt_dists = nullptr;
     size_t query_num, query_dim, query_aligned_dim, gt_num, gt_dim;
     diskann::load_aligned_bin<T>(query_file, query, query_num, query_dim, query_aligned_dim);
-
-    // open csv file
-    std::cout << "[==========] csv_file: " << csv_file << std::endl;
-    std::ofstream csv_stream(csv_file, std::ios::out | std::ios::app);
 
     bool calc_recall_flag = false;
     if (truthset_file != std::string("null") && file_exists(truthset_file))
@@ -110,14 +104,12 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
     {
         std::cout << std::setw(4) << "Ls" << std::setw(12) << qps_title << std::setw(20) << "Mean Latency (mus)"
                   << std::setw(15) << "99.9 Latency";
-        csv_stream << "Ls," << qps_title << ",Mean Latency (mus),99.9 Latency" << std::endl;
         table_width += 4 + 12 + 20 + 15;
     }
     else
     {
         std::cout << std::setw(4) << "Ls" << std::setw(12) << qps_title << std::setw(18) << "Avg dist cmps"
                   << std::setw(20) << "Mean Latency (mus)" << std::setw(15) << "99.9 Latency";
-        csv_stream << "Ls," << qps_title << ",Avg dist cmps,Mean Latency (mus),99.9 Latency" << std::endl;
         table_width += 4 + 12 + 18 + 20 + 15;
     }
     uint32_t recalls_to_print = 0;
@@ -127,7 +119,6 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
         for (uint32_t curr_recall = first_recall; curr_recall <= recall_at; curr_recall++)
         {
             std::cout << std::setw(12) << ("Recall@" + std::to_string(curr_recall));
-            csv_stream << ",Recall@" << curr_recall;
         }
         recalls_to_print = recall_at + 1 - first_recall;
         table_width += recalls_to_print * 12;
@@ -233,25 +224,19 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
         {
             std::cout << std::setw(4) << L << std::setw(12) << displayed_qps << std::setw(20) << (float)mean_latency
                       << std::setw(15) << (float)latency_stats[(uint64_t)(0.999 * query_num)];
-            csv_stream << L << "," << displayed_qps << "," << (float)mean_latency << ","
-                       << (float)latency_stats[(uint64_t)(0.999 * query_num)];
         }
         else
         {
             std::cout << std::setw(4) << L << std::setw(12) << displayed_qps << std::setw(18) << avg_cmps
                       << std::setw(20) << (float)mean_latency << std::setw(15)
                       << (float)latency_stats[(uint64_t)(0.999 * query_num)];
-            csv_stream << L << "," << displayed_qps << "," << avg_cmps << "," << (float)mean_latency << ","
-                       << (float)latency_stats[(uint64_t)(0.999 * query_num)];
         }
         for (double recall : recalls)
         {
             std::cout << std::setw(12) << recall;
-            csv_stream << "," << recall;
             best_recall = std::max(recall, best_recall);
         }
         std::cout << std::endl;
-        csv_stream << std::endl;
     }
 
     std::cout << "Done searching. Now saving results " << std::endl;
@@ -273,8 +258,7 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
 
         test_id++;
     }
-    
-    csv_stream.close();
+
     diskann::aligned_free(query);
     return best_recall >= fail_if_recall_below ? 0 : -1;
 }
@@ -282,7 +266,7 @@ int search_memory_index(diskann::Metric &metric, const std::string &index_path, 
 int main(int argc, char **argv)
 {
     std::string data_type, dist_fn, index_path_prefix, result_path, query_file, gt_file, filter_label, label_type,
-        query_filters_file, csv_file;
+        query_filters_file;
     uint32_t num_threads, K;
     std::vector<uint32_t> Lvec;
     bool print_all_recalls, dynamic, tags, show_qps_per_thread;
@@ -335,8 +319,6 @@ int main(int argc, char **argv)
         optional_configs.add_options()("fail_if_recall_below",
                                        po::value<float>(&fail_if_recall_below)->default_value(0.0f),
                                        program_options_utils::FAIL_IF_RECALL_BELOW);
-        optional_configs.add_options()("csv_file", po::value<std::string>(&csv_file)->default_value(std::string("")),
-                                       "CSV file to save results to");
 
         // Output controls
         po::options_description output_controls("Output controls");
@@ -427,19 +409,19 @@ int main(int argc, char **argv)
             {
                 return search_memory_index<int8_t, uint16_t>(
                     metric, index_path_prefix, result_path, query_file, gt_file, num_threads, K, print_all_recalls,
-                    Lvec, dynamic, tags, show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                    Lvec, dynamic, tags, show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else if (data_type == std::string("uint8"))
             {
                 return search_memory_index<uint8_t, uint16_t>(
                     metric, index_path_prefix, result_path, query_file, gt_file, num_threads, K, print_all_recalls,
-                    Lvec, dynamic, tags, show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                    Lvec, dynamic, tags, show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else if (data_type == std::string("float"))
             {
                 return search_memory_index<float, uint16_t>(metric, index_path_prefix, result_path, query_file, gt_file,
                                                             num_threads, K, print_all_recalls, Lvec, dynamic, tags,
-                                                            show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                                                            show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else
             {
@@ -453,19 +435,19 @@ int main(int argc, char **argv)
             {
                 return search_memory_index<int8_t>(metric, index_path_prefix, result_path, query_file, gt_file,
                                                    num_threads, K, print_all_recalls, Lvec, dynamic, tags,
-                                                   show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                                                   show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else if (data_type == std::string("uint8"))
             {
                 return search_memory_index<uint8_t>(metric, index_path_prefix, result_path, query_file, gt_file,
                                                     num_threads, K, print_all_recalls, Lvec, dynamic, tags,
-                                                    show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                                                    show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else if (data_type == std::string("float"))
             {
                 return search_memory_index<float>(metric, index_path_prefix, result_path, query_file, gt_file,
                                                   num_threads, K, print_all_recalls, Lvec, dynamic, tags,
-                                                  show_qps_per_thread, query_filters, fail_if_recall_below, csv_file);
+                                                  show_qps_per_thread, query_filters, fail_if_recall_below);
             }
             else
             {
