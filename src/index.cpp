@@ -734,16 +734,19 @@ size_t Index<T, TagT, LabelT>::load_graph(std::string filename, size_t expected_
     if (file_frozen_pts != _num_frozen_pts)
     {
         std::stringstream stream;
+        // stream << "! Attention : " << "file_frozen_pts: " << file_frozen_pts << ", _num_frozen_pts: " << _num_frozen_pts << std::endl;
         if (file_frozen_pts == 1)
         {
             stream << "ERROR: When loading index, detected dynamic index, but "
                       "constructor asks for static index. Exitting."
+                   << "file_frozen_pts: " << file_frozen_pts << ", _num_frozen_pts: " << _num_frozen_pts 
                    << std::endl;
         }
         else
         {
             stream << "ERROR: When loading index, detected static index, but "
                       "constructor asks for dynamic index. Exitting."
+                   << "file_frozen_pts: " << file_frozen_pts << ", _num_frozen_pts: " << _num_frozen_pts 
                    << std::endl;
         }
         diskann::cerr << stream.str() << std::endl;
