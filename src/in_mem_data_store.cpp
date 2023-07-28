@@ -14,6 +14,7 @@ InMemDataStore<data_t>::InMemDataStore(const location_t num_points, const size_t
                                        std::shared_ptr<Distance<data_t>> distance_fn)
     : AbstractDataStore<data_t>(num_points, dim), _distance_fn(distance_fn)
 {
+    // std::cout << "InMemDataStore: num_points = " << num_points << ", dim = " << dim << std::endl;
     _aligned_dim = ROUND_UP(dim, _distance_fn->get_required_alignment());
     alloc_aligned(((void **)&_data), this->_capacity * _aligned_dim * sizeof(data_t), 8 * sizeof(data_t));
     std::memset(_data, 0, this->_capacity * _aligned_dim * sizeof(data_t));
@@ -162,13 +163,16 @@ template <typename data_t> void InMemDataStore<data_t>::get_vector(const locatio
 
 template <typename data_t> void InMemDataStore<data_t>::set_vector(const location_t loc, const data_t *const vector)
 {
+    // std::cout << "InMemDataStore::set_vector: loc = " << loc << std::endl;
     size_t offset_in_data = loc * _aligned_dim;
     memset(_data + offset_in_data, 0, _aligned_dim * sizeof(data_t));
     memcpy(_data + offset_in_data, vector, this->_dim * sizeof(data_t));
+    // std::cout << "InMemDataStore::set_vector: memcpy done" << std::endl;
     if (_distance_fn->preprocessing_required())
     {
         _distance_fn->preprocess_base_points(_data + offset_in_data, _aligned_dim, 1);
     }
+    // std::cout << "InMemDataStore::set_vector: preprocess done" << std::endl;
 }
 
 template <typename data_t> void InMemDataStore<data_t>::prefetch_vector(const location_t loc)

@@ -121,6 +121,7 @@ Index<T, TagT, LabelT>::Index(Metric m, const size_t dim, const size_t max_point
             this->_distance.reset((Distance<T> *)get_distance_function<T>(m));
         }
         // Note: moved this to factory, keeping this for backward compatibility.
+        std::cout << "[==] Setting up data store" << std::endl;
         _data_store =
             std::make_unique<diskann::InMemDataStore<T>>((location_t)total_internal_points, _dim, this->_distance);
     }
@@ -1611,6 +1612,7 @@ void Index<T, TagT, LabelT>::set_start_points(const T *data, size_t data_count)
     //     sizeof(T) * _num_frozen_pts);
     for (location_t i = 0; i < _num_frozen_pts; i++)
     {
+        std::cout << "Setting frozen point " << i + _max_points << std::endl;
         _data_store->set_vector((location_t)(i + _max_points), data + i * _dim);
     }
     _has_built = true;

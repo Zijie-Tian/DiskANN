@@ -74,12 +74,24 @@ inline void load_aligned_bin_part(const std::string &bin_file, T *data, size_t o
     reader.close();
 }
 
+//! 用于保存最终结果的文件名
 std::string get_save_filename(const std::string &save_path, size_t active_window, size_t consolidate_interval,
                               size_t max_points_to_insert)
 {
     std::string final_path = save_path;
     final_path += "act" + std::to_string(active_window) + "-";
     final_path += "cons" + std::to_string(consolidate_interval) + "-";
+    final_path += "max" + std::to_string(max_points_to_insert);
+    return final_path;
+}
+
+//! 用于保存中间结果的文件名
+std::string get_inter_filename(const std::string &save_path, size_t num_inserted, size_t num_deleted,
+                              size_t max_points_to_insert)
+{
+    std::string final_path = save_path;
+    final_path += "inserted" + std::to_string(num_inserted) + "-";
+    final_path += "deleted" + std::to_string(num_deleted) + "-";
     final_path += "max" + std::to_string(max_points_to_insert);
     return final_path;
 }
@@ -217,6 +229,11 @@ void build_incremental_index(const std::string &data_path, const uint32_t L, con
                             .with_data_type(diskann_type_to_name<T>())
                             .with_index_write_params(params)
                             .with_data_load_store_strategy(diskann::MEMORY)
+                            //= 我真的吐了，这个不传是为了折磨我吗？？？？？？
+                            //= 不过也是，这个没法取到啊。
+                            //= 我这里就是Hack了一下。
+                            //= 因为只有一个start_point，这个就是1.
+                            .with_num_frozen_pts(1)
                             .build();
 
     diskann::IndexFactory index_factory = diskann::IndexFactory(index_config);
@@ -241,6 +258,7 @@ void build_incremental_index(const std::string &data_path, const uint32_t L, con
         throw diskann::ANNException("ERROR: consolidate_interval is too small", -1, __FUNCSIG__, __FILE__, __LINE__);
 
     //= 7/26 这个会失败啊..
+    //= 不会了。我把这个改成了1了。
     index->set_start_points_at_random(static_cast<T>(start_point_norm));
 
     T *data = nullptr;
@@ -260,7 +278,13 @@ void build_incremental_index(const std::string &data_path, const uint32_t L, con
     });
     insert_task.wait();
 
-    for (size_t start = active_window; start + consolidate_interval <= max_points_to_insert;
+    size_t start = active_window;
+
+    // const auto tmp_path =
+    //     get_inter_filename(save_path + ".after-streaming-", start, 0, max_points_to_insert);
+    // index->save(tmp_path.c_str(), false);
+
+    for (start = active_window; start + consolidate_interval <= max_points_to_insert;
          start += consolidate_interval)
     {
         auto end = std::min(start + consolidate_interval, max_points_to_insert);
@@ -269,6 +293,11 @@ void build_incremental_index(const std::string &data_path, const uint32_t L, con
             insert_next_batch(*index, start, end, params.num_threads, data, aligned_dim);
         });
         insert_task.wait();
+
+        //! end 是已经插入的位置。
+        // const auto save_path_inc =
+        //     get_inter_filename(save_path + ".after-streaming-", end, 0, max_points_to_insert);
+        // index->save(save_path_inc.c_str(), false);
 
         if (delete_tasks.size() > 0)
             delete_tasks[delete_tasks.size() - 1].wait();
