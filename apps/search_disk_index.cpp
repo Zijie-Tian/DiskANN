@@ -177,9 +177,9 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
     diskann::cout.precision(2);
 
     std::string recall_string = "Recall@" + std::to_string(recall_at);
-    diskann::cout << std::setw(6) << "L" << std::setw(12) << "Beamwidth" << std::setw(16) << "QPS" << std::setw(16)
+    diskann::cout << std::setw(6) << "L" << std::setw(12) << "Beamwidth" << std::setw(16) << "QPS / thread" << std::setw(16)
                   << "Mean Latency" << std::setw(16) << "99.9 Latency" << std::setw(16) << "Mean IOs" << std::setw(16)
-                  << "CPU (s)";
+                  << "CPU (us)" << std::setw(16) << "IO Time(us)" ;
     if (calc_recall_flag)
     {
         diskann::cout << std::setw(16) << recall_string << std::endl;
@@ -187,7 +187,7 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
     else
         diskann::cout << std::endl;
     diskann::cout << "==============================================================="
-                     "======================================================="
+                     "======================================================================="
                   << std::endl;
 
     std::vector<std::vector<uint32_t>> query_result_ids(Lvec.size());
@@ -267,8 +267,15 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
         auto mean_ios = diskann::get_mean_stats<uint32_t>(stats, query_num,
                                                           [](const diskann::QueryStats &stats) { return stats.n_ios; });
 
+        auto mean_io_us = diskann::get_mean_stats<uint32_t>(stats, query_num,
+                                                          [](const diskann::QueryStats &stats) { return stats.io_us; });
+
         auto mean_cpuus = diskann::get_mean_stats<float>(stats, query_num,
                                                          [](const diskann::QueryStats &stats) { return stats.cpu_us; });
+
+        auto mean_n_4k = diskann::get_mean_stats<float>(stats, query_num,
+                                                   [](const diskann::QueryStats &stats) { return stats.n_4k; });
+
 
         double recall = 0;
         if (calc_recall_flag)
@@ -278,9 +285,9 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
             best_recall = std::max(recall, best_recall);
         }
 
-        diskann::cout << std::setw(6) << L << std::setw(12) << optimized_beamwidth << std::setw(16) << qps
+        diskann::cout << std::setw(6) << L << std::setw(12) << optimized_beamwidth << std::setw(16) << qps / num_threads
                       << std::setw(16) << mean_latency << std::setw(16) << latency_999 << std::setw(16) << mean_ios
-                      << std::setw(16) << mean_cpuus;
+                      << std::setw(16) << mean_cpuus << std::setw(16) << mean_io_us << std::setw(12) << mean_n_4k;
         if (calc_recall_flag)
         {
             diskann::cout << std::setw(16) << recall << std::endl;

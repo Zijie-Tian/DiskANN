@@ -35,6 +35,16 @@ struct QueryStats
     unsigned n_hops = 0;       // # search hops
 };
 
+template <typename T> 
+inline T get_stats_arr(QueryStats *stats, uint64_t len, std::vector<T>& ret, 
+        const std::function<T(const QueryStats &)> &member_fn) {
+    ret.clear();
+    ret.resize(len);
+    for(int i = 0; i < len; ++i) {
+        ret[i] = member_fn(stats);
+    }
+}
+
 template <typename T>
 inline T get_percentile_stats(QueryStats *stats, uint64_t len, float percentile,
                               const std::function<T(const QueryStats &)> &member_fn)
