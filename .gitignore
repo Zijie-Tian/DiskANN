@@ -356,7 +356,6 @@ MigrationBackup/
 /out/build/x64-Debug
 cscope*
 
-build/
 build_linux/
 !.github/actions/build
 
@@ -378,3 +377,7 @@ gperftools
 
 # Rust
 rust/target
+
+
+build/*
+!build/benchmarks
