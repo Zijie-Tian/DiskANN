@@ -1254,11 +1254,17 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     const uint64_t num_sectors_per_node =
         _nnodes_per_sector > 0 ? 1 : DIV_ROUND_UP(_max_node_len, defaults::SECTOR_LEN);
 
+    Timer pqdist_timer, sort_timer;
+
     // query <-> PQ chunk centers distances
+    pqdist_timer.reset();
     _pq_table.preprocess_query(query_rotated); // center the query and rotate if
                                                // we have a rotation matrix
     float *pq_dists = pq_query_scratch->aligned_pqtable_dist_scratch;
     _pq_table.populate_chunk_distances(query_rotated, pq_dists);
+    if (stats != nullptr) {
+        stats->pqdist_us += (float)pqdist_timer.elapsed();
+    }
 
     // query <-> neighbor list
     float *dist_scratch = pq_query_scratch->aligned_dist_scratch;
@@ -1316,7 +1322,40 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
         }
     }
 
+    cpu_timer.reset();
     compute_dists(&best_medoid, 1, dist_scratch);
+    if (stats != nullptr)
+    {
+        stats->cpu_us += (float)cpu_timer.elapsed();
+        stats->compute_dist_us += (float)cpu_timer.elapsed();
+    }
+
+    //! 测试
+    std::random_device tmp_rd;  // 用于生成种子
+    std::mt19937 tmp_gen(tmp_rd()); // 使用Mersenne Twister 19937生成器
+    std::uniform_int_distribution<> tmp_distrib(1, 256);  // 定义一个范围为1到6的均匀分布
+    uint64_t tmp_n_ids = 64;
+    uint32_t* tmp_ids = (uint32_t*)malloc(tmp_n_ids * this->_n_chunks * sizeof(uint32_t));
+    float* tmp_pq_dists = (float*)malloc(tmp_n_ids * this->_n_chunks * sizeof(float));
+
+    for (int i = 0; i < tmp_n_ids; i++) {
+        for (int j = 0; j < this->_n_chunks; j++) {
+            tmp_ids[i] = tmp_distrib(tmp_gen);
+        }
+    }
+
+    cpu_timer.reset();
+    compute_dists(tmp_ids, tmp_n_ids, tmp_pq_dists);
+    if (stats != nullptr)
+    {
+        stats->single_pqdist_us = (float)cpu_timer.elapsed();
+        stats->n_chunks = this->_n_chunks;
+    }
+
+
+    //! =================
+    
+    
     retset.insert(Neighbor(best_medoid, dist_scratch[0]));
     visited.insert(best_medoid);
 
@@ -1432,6 +1471,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             {
                 stats->n_cmps += (uint32_t)nnbrs;
                 stats->cpu_us += (float)cpu_timer.elapsed();
+                stats->compute_dist_us += (float)cpu_timer.elapsed();
+                stats->n_nnbrs += (uint32_t)nnbrs;
+                stats->n_dist += 1;
             }
 
             // process prefetched nhood
@@ -1493,6 +1535,9 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             {
                 stats->n_cmps += (uint32_t)nnbrs;
                 stats->cpu_us += (float)cpu_timer.elapsed();
+                stats->compute_dist_us += (float)cpu_timer.elapsed();
+                stats->n_nnbrs += (uint32_t)nnbrs;
+                stats->n_dist += 1;
             }
 
             cpu_timer.reset();

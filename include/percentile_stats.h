@@ -24,6 +24,12 @@ struct QueryStats
     float io_us = 0;    // total time spent in IO
     float cpu_us = 0;   // total time spent in CPU
 
+    // float ivf_dist_us = 0; // time spent in IVF distance computation
+    float pqdist_us = 0;  // time spent in PQ distance computation
+    float compute_dist_us = 0; // time spent in PQ distance computation
+    float sort_us = 0;     // time spent in sorting
+    float single_pqdist_us = 0; // time spent in single PQ distance computation
+
     unsigned n_4k = 0;         // # of 4kB reads
     unsigned n_8k = 0;         // # of 8kB reads
     unsigned n_12k = 0;        // # of 12kB reads
@@ -33,6 +39,10 @@ struct QueryStats
     unsigned n_cmps = 0;       // # cmps
     unsigned n_cache_hits = 0; // # cache_hits
     unsigned n_hops = 0;       // # search hops
+
+    unsigned n_nnbrs = 0; // # avg neighbors
+    unsigned n_dist = 0; // # avg distance
+    unsigned n_chunks = 0;
 };
 
 template <typename T> 

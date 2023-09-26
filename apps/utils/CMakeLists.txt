@@ -78,9 +78,19 @@ target_link_libraries(generate_synthetic_labels ${PROJECT_NAME} Boost::program_o
 add_executable(stats_label_data stats_label_data.cpp)
 target_link_libraries(stats_label_data ${PROJECT_NAME} Boost::program_options)
 
+add_executable(crop_data crop_data.cpp)
+target_link_libraries(crop_data ${PROJECT_NAME} Boost::program_options)
+
+add_executable(multi_crop multi_crop.cpp)
+target_link_libraries(multi_crop ${PROJECT_NAME} Boost::program_options)
+
+add_executable(pq_dists pq_dists.cpp)
+target_link_libraries(pq_dists ${PROJECT_NAME} Boost::program_options)
+
 if (NOT MSVC)
     include(GNUInstallDirs)
     install(TARGETS fvecs_to_bin
+            pq_dists
             fvecs_to_bvecs
             rand_data_gen
             float_bin_to_int8
@@ -105,6 +115,8 @@ if (NOT MSVC)
             create_disk_layout
             generate_synthetic_labels
             stats_label_data
+            crop_data
+            multi_crop
             RUNTIME
     )
 endif()

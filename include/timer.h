@@ -36,4 +36,41 @@ class Timer
                std::string(" seconds");
     }
 };
+
+class GlobalTimer {
+private:
+using Clock = std::chrono::high_resolution_clock;
+using TimePoint = std::chrono::time_point<Clock>;
+
+TimePoint start_time;
+
+// 私有的构造函数，以确保外部不能实例化
+GlobalTimer() : start_time(Clock::now()) {
+}
+
+public:
+// 删除复制构造函数和赋值操作
+GlobalTimer(const GlobalTimer&) = delete;
+GlobalTimer& operator=(const GlobalTimer&) = delete;
+
+// 提供一个静态方法来获取单例实例
+//! 第一次要调用这个。
+static GlobalTimer& getInstance() {
+    static GlobalTimer
+        instance;  // Guaranteed to be destroyed. Instantiated on first use.
+    return instance;
+}
+
+long long elapsed() const {
+    auto current_time = Clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        current_time - start_time);
+    return duration.count();
+}
+
+void reset() {
+    start_time = Clock::now();
+}
+};
+
 } // namespace diskann
