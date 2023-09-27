@@ -17,6 +17,7 @@
 #include <ctime>
 #include <iomanip>
 #include <atomic>
+#include <vector>
 
 #include "index.h"
 #include "iostats.h"
@@ -73,7 +74,8 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
                       const uint32_t num_threads, const uint32_t recall_at, const uint32_t beamwidth,
                       const uint32_t num_nodes_to_cache, const uint32_t search_io_limit,
                       const std::vector<uint32_t> &Lvec, const float fail_if_recall_below,
-                      const std::vector<std::string> &query_filters, std::ofstream& csv_stream, const bool use_reorder_data = false)
+                      const std::vector<std::string> &query_filters, std::ofstream& csv_stream, 
+                      std::string& profile_perfix, const bool use_reorder_data = false)
 {
     diskann::cout << "Search parameters: #threads: " << num_threads << ", ";
     if (beamwidth <= 0)
@@ -84,6 +86,12 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
         diskann::cout << "." << std::endl;
     else
         diskann::cout << ", io_limit: " << search_io_limit << "." << std::endl;
+
+    std::ofstream cache_hit_rate_file;
+    cache_hit_rate_file.open(profile_perfix + "_cache_hit_rate.csv", std::ios::out);
+
+    std::ofstream nhop_file;
+    nhop_file.open(profile_perfix + "_nhop.csv", std::ios::out);
 
     std::string warmup_query_file = index_path_prefix + "_sample_data.bin";
 
@@ -198,12 +206,12 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
 
     std::string recall_string = "Recall@" + std::to_string(recall_at);
     diskann::cout << std::setw(6) << "L" << std::setw(12) << "Beamwidth" << std::setw(16) << "QPS / thread" << std::setw(16)
-                  << "Mean Latency" << std::setw(16) << "99.9 Latency" << std::setw(16) << "Mean IOs" << std::setw(16)
+                  << "Mean Latency" << std::setw(16) << "99.9 Latency" << std::setw(16) << "Mean IOs" << std::setw(16) << "Mean Cache hit Rate" << std::setw(16)
                   << "CPU (us)" << std::setw(16) << "ComputeDist (us)" << std::setw(16) << "PQDist (us)" << std::setw(16) << "SinglePQDist (us) & chunks" 
                   << std::setw(16) << "IO Time(us)" << std::setw(16) << "Mean IO 4k" << std::setw(16) << "Mean Nnbrs" << std::setw(16) << "Mean Ncompdist" ;
     
-    csv_stream << "L,Beamwidth,QPS / thread,Mean Latency,99.9 Latency,Mean IOs,CPU (us),ComputeDist (us),"
-               << "PQDist (us),SinglePQDist (us) & chunks,IO Time(us),Mean IO 4k,Mean Nnbrs,Mean Ncompdist";
+    csv_stream << "L,Beamwidth,QPS / thread,Mean Latency,99.9 Latency,Mean IOs,Mean Cache hit Rate,CPU (us),"
+               << "ComputeDist (us),PQDist (us),SinglePQDist (us),IO Time(us),Mean IO 4k,Mean Nnbrs,Mean Ncompdist";
     
     if (calc_recall_flag)
     {
@@ -227,6 +235,10 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
 
     for (uint32_t test_id = 0; test_id < Lvec.size(); test_id++)
     {
+        std::string ids_file = profile_perfix + "_" + std::to_string(Lvec[test_id]) + "_ids.csv";
+        std::ofstream ids_stream;
+        ids_stream.open(ids_file, std::ios::out);
+
         uint32_t L = Lvec[test_id];
 
         if (L < recall_at)
@@ -255,6 +267,7 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
 #pragma omp parallel for schedule(dynamic, 1)
         for (int64_t i = 0; i < (int64_t)query_num; i++)
         {
+            // (stats + i) -> iter_ids = new uint32_t[L * optimized_beamwidth];
             if (!filtered_search)
             {
                 _pFlashIndex->cached_beam_search(query + (i * query_aligned_dim), recall_at, L,
@@ -322,6 +335,24 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
         auto mean_nchunks = diskann::get_mean_stats<float>(
             stats, query_num, [](const diskann::QueryStats &stats) { return stats.n_chunks; });
 
+        auto cache_hit_rate = diskann::get_mean_stats<float>(
+            stats, query_num, [](const diskann::QueryStats &stats) { return stats.cache_hit_rate; });
+
+        std::vector<float> chr_arr;
+        diskann::get_stats_arr<float>(
+            stats, query_num, chr_arr, [](const diskann::QueryStats &stats) { return stats.cache_hit_rate; });
+
+        std::vector<unsigned> n_cache_hits_arr;
+        diskann::get_stats_arr<unsigned>(
+            stats, query_num, n_cache_hits_arr, [](const diskann::QueryStats &stats) { return stats.n_cache_hits; });
+
+        std::vector<unsigned> n_cache_misses_arr;
+        diskann::get_stats_arr<unsigned>(
+            stats, query_num, n_cache_misses_arr, [](const diskann::QueryStats &stats) { return stats.n_cache_misses; });
+
+        std::vector<unsigned> n_hop_arr;
+        diskann::get_stats_arr<unsigned>(
+            stats, query_num, n_hop_arr, [](const diskann::QueryStats &stats) { return stats.n_hops; });
 
         double recall = 0;
         if (calc_recall_flag)
@@ -331,13 +362,45 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
             best_recall = std::max(recall, best_recall);
         }
 
+        diskann::cout << "Cache hit rate distribution: " << std::endl;
+
+        for (int i = 0; i < n_cache_hits_arr.size(); i++){
+            cache_hit_rate_file << n_cache_hits_arr[i] << ",";
+        }
+        cache_hit_rate_file << "\n";
+
+        for (int i = 0; i < n_cache_misses_arr.size(); i++){
+            cache_hit_rate_file << n_cache_misses_arr[i] << ",";
+        }
+        cache_hit_rate_file << "\n";
+
+        for (int i = 0; i < chr_arr.size(); i++){
+            // diskann::cout << chr_arr[i] << " ";
+            cache_hit_rate_file << chr_arr[i] << ",";
+        }
+        cache_hit_rate_file << "\n" << "\n";
+
+        diskann::cout << "Nhop distribution: " << std::endl;
+        for (int i = 0; i < n_hop_arr.size(); i++){
+            nhop_file << n_hop_arr[i] << ",";
+        }
+        nhop_file << "\n" ;
+
+
+
+
+        for (int64_t i = 0; i < (int64_t)query_num; i++) {
+            ids_stream << i << "," << stats[i].iter_ids << "\n";
+        }
+
+
         diskann::cout << std::setw(6) << L << std::setw(12) << optimized_beamwidth << std::setw(16) << qps / num_threads
-                      << std::setw(16) << mean_latency << std::setw(16) << latency_999 << std::setw(16) << mean_ios
+                      << std::setw(16) << mean_latency << std::setw(16) << latency_999 << std::setw(16) << mean_ios << std::setw(16) << cache_hit_rate
                       << std::setw(16) << mean_cpuus << std::setw(16) << mean_compute_dist_us << std::setw(16) << mean_pqdist_us << std::setw(16) << mean_single_pqdist_us << "," << mean_nchunks
                       << std::setw(16) << mean_io_us << std::setw(12) << mean_n_4k << std::setw(16) << mean_nnbrs << std::setw(16) << mean_ndist;
         
         csv_stream << L << "," << optimized_beamwidth << "," << qps / num_threads << "," << mean_latency << ","
-                   << latency_999 << "," << mean_ios << "," << mean_cpuus << "," << mean_compute_dist_us << ","
+                   << latency_999 << "," << mean_ios << "," << cache_hit_rate << "," << mean_cpuus << "," << mean_compute_dist_us << ","
                    << mean_pqdist_us << "," << mean_single_pqdist_us << "," << mean_io_us << ","
                    << mean_n_4k << "," << mean_nnbrs << "," << mean_ndist;
         
@@ -350,6 +413,8 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
             diskann::cout << std::endl;
             csv_stream << "\n";   
         }
+
+        ids_stream.close();
         delete[] stats;
     }
 
@@ -370,6 +435,10 @@ int search_disk_index(diskann::Metric &metric, const std::string &index_path_pre
     diskann::aligned_free(query);
     if (warmup != nullptr)
         diskann::aligned_free(warmup);
+
+    cache_hit_rate_file.close();
+    nhop_file.close();
+
     return best_recall >= fail_if_recall_below ? 0 : -1;
 }
 
@@ -409,7 +478,7 @@ void run_iostat(std::ofstream &csv_stream, std::atomic_bool& run_profile, int n_
         diskann::replace_dstats(curr_dstats, prev_dstats, n_dev);
 
         for (int i = 0; i < n_dev; ++i) {
-            if (strcmp(io_stats[i]->devname, "nvme3n1") != 0) {
+            if (strcmp(io_stats[i]->devname, "sda") != 0) {
                 continue;
             }
 
@@ -543,6 +612,8 @@ int main(int argc, char **argv)
     std::ofstream csv_stream;
     csv_stream.open(csv_file, std::ios::out);
 
+    std::string perfix = csv_file.substr(0, csv_file.find_last_of("."));
+
 
     //! 启动iostats测试线程。
     std::string   iostats = result_path_prefix + "_iostats.csv";
@@ -612,15 +683,15 @@ int main(int argc, char **argv)
             if (data_type == std::string("float"))
                 search_disk_index<float, uint16_t>(
                     metric, index_path_prefix, result_path_prefix, query_file, gt_file, num_threads, K, W,
-                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else if (data_type == std::string("int8"))
                 search_disk_index<int8_t, uint16_t>(
                     metric, index_path_prefix, result_path_prefix, query_file, gt_file, num_threads, K, W,
-                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else if (data_type == std::string("uint8"))
                 search_disk_index<uint8_t, uint16_t>(
                     metric, index_path_prefix, result_path_prefix, query_file, gt_file, num_threads, K, W,
-                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                    num_nodes_to_cache, search_io_limit, Lvec, fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else
             {
                 std::cerr << "Unsupported data type. Use float or int8 or uint8" << std::endl;
@@ -632,15 +703,15 @@ int main(int argc, char **argv)
             if (data_type == std::string("float"))
                 search_disk_index<float>(metric, index_path_prefix, result_path_prefix, query_file, gt_file,
                                                 num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec,
-                                                fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                                                fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else if (data_type == std::string("int8"))
                 search_disk_index<int8_t>(metric, index_path_prefix, result_path_prefix, query_file, gt_file,
                                                  num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec,
-                                                 fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                                                 fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else if (data_type == std::string("uint8"))
                 search_disk_index<uint8_t>(metric, index_path_prefix, result_path_prefix, query_file, gt_file,
                                                   num_threads, K, W, num_nodes_to_cache, search_io_limit, Lvec,
-                                                  fail_if_recall_below, query_filters, csv_stream, use_reorder_data);
+                                                  fail_if_recall_below, query_filters, csv_stream, perfix, use_reorder_data);
             else
             {
                 std::cerr << "Unsupported data type. Use float or int8 or uint8" << std::endl;

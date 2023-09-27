@@ -355,6 +355,7 @@ MigrationBackup/
 /.vs
 /out/build/x64-Debug
 cscope*
+.vscode/
 
 build_linux/
 !.github/actions/build

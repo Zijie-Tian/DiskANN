@@ -30,6 +30,12 @@ struct QueryStats
     float sort_us = 0;     // time spent in sorting
     float single_pqdist_us = 0; // time spent in single PQ distance computation
 
+    // some others
+    float cache_hit_rate = 0; // cache hit rate
+
+    std::string iter_ids; // ids of iterations
+    uint32_t iter_ids_len = 0;         // # of results returned
+
     unsigned n_4k = 0;         // # of 4kB reads
     unsigned n_8k = 0;         // # of 8kB reads
     unsigned n_12k = 0;        // # of 12kB reads
@@ -38,6 +44,7 @@ struct QueryStats
     unsigned n_cmps_saved = 0; // # cmps saved
     unsigned n_cmps = 0;       // # cmps
     unsigned n_cache_hits = 0; // # cache_hits
+    unsigned n_cache_misses = 0; // # cache_misses
     unsigned n_hops = 0;       // # search hops
 
     unsigned n_nnbrs = 0; // # avg neighbors
@@ -46,12 +53,12 @@ struct QueryStats
 };
 
 template <typename T> 
-inline T get_stats_arr(QueryStats *stats, uint64_t len, std::vector<T>& ret, 
+inline void get_stats_arr(QueryStats *stats, uint64_t len, std::vector<T>& ret, 
         const std::function<T(const QueryStats &)> &member_fn) {
     ret.clear();
     ret.resize(len);
     for(int i = 0; i < len; ++i) {
-        ret[i] = member_fn(stats);
+        ret[i] = member_fn(stats[i]);
     }
 }
 

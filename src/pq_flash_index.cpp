@@ -1355,7 +1355,6 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
 
     //! =================
     
-    
     retset.insert(Neighbor(best_medoid, dist_scratch[0]));
     visited.insert(best_medoid);
 
@@ -1372,6 +1371,16 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
     frontier_read_reqs.reserve(2 * beam_width);
     std::vector<std::pair<uint32_t, std::pair<uint32_t, uint32_t *>>> cached_nhoods;
     cached_nhoods.reserve(2 * beam_width);
+
+    int cur = 0;
+    // if (stats != nullptr) {
+    //     stats -> iter_ids = new uint32_t[l_search * beam_width];
+    //     memset(stats -> iter_ids, 0, l_search * beam_width * sizeof(uint32_t));
+    // }
+
+    // uint32_t *iter_ids = new uint32_t[l_search * beam_width];
+
+    std::string iter_ids = "";
 
     while (retset.has_unexpanded_node() && num_ios < io_limit)
     {
@@ -1399,11 +1408,29 @@ void PQFlashIndex<T, LabelT>::cached_beam_search(const T *query1, const uint64_t
             else
             {
                 frontier.push_back(nbr.id);
+                if (stats != nullptr)
+                {
+                    stats->n_cache_misses++;
+                }
             }
+
+            if (stats != nullptr) {
+                // iter_ids[cur++] = (uint32_t) nbr.id;
+                // std::string tmp = std::to_string(cur) + "," + std::to_string(nbr.id) + "\n";
+                iter_ids += std::to_string(nbr.id) + ",";
+                stats -> iter_ids = iter_ids;
+                // diskann::cout << tmp;
+                stats -> iter_ids_len = cur++;
+            }
+
             if (this->_count_visited_nodes)
             {
                 reinterpret_cast<std::atomic<uint32_t> &>(this->_node_visit_counter[nbr.id].second).fetch_add(1);
             }
+        }
+
+        if (stats != nullptr) {
+            stats -> cache_hit_rate = (float)stats->n_cache_hits / (float)(stats->n_cache_hits + stats->n_cache_misses);
         }
 
         // read nhoods of frontier ids
